@@ -1,32 +1,37 @@
 package io.github.grimmmyy.lumen;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
 import android.provider.Settings;
-import android.text.TextUtils;
+import android.util.DisplayMetrics;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.core.widget.NestedScrollView;
 import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -35,28 +40,71 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class MainActivity extends Activity implements TileAdapter.Host {
+public class MainActivity extends Activity implements HomeAdapter.Host {
+    private static final String TAG = "Lumen";
     private static final String EPG_PERMISSION = "com.android.providers.tv.permission.READ_EPG_DATA";
     private static final String FIRE_LAUNCHER = "com.amazon.tv.launcher";
     private static final int REQ_EPG = 7;
-    /** Rows are added after the header and spacer that live in the layout. */
-    private static final int STATIC_CHILDREN = 2;
-    private static final int GRID_COLUMNS = 5;
+    private static final int REQ_STORAGE = 8;
+    private static final int SPANS = 5;
+    private static final float KEYLINE = 0.36f;
+    private static final int MAX_RECENT_TILES = 6;
 
-    private final ExecutorService io = Executors.newFixedThreadPool(2);
+    /** Low-priority workers, so background loading never competes with drawing frames. */
+    private final ExecutorService io = Executors.newFixedThreadPool(2, r -> new Thread(() -> {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+        r.run();
+    }, "lumen-io"));
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private Prefs prefs;
     private ImageLoader images;
+    private ArtCache art;
     private Backdrop backdrop;
-    private NestedScrollView scroll;
-    private LinearLayout rows;
-    private TextView focusTitle;
-    private TextView focusSubtitle;
+    private RecyclerView home;
+    private HomeLayoutManager layout;
+    private HomeAdapter adapter;
 
-    private final Map<String, AppEntry> appsByPkg = new HashMap<>();
-    private String lastSignature;
-    private int loadGeneration;
+    private float radius;
+    private int gap;
+    private int side;
+    private int shelfW;
+    private int shelfH;
+    private int smallW;
+    private int smallH;
+    private int gridW;
+    private int gridH;
+
+    private List<AppEntry> apps = Collections.emptyList();
+    private List<WatchNext.Item> watch = Collections.emptyList();
+    private final Map<String, AppEntry> byPkg = new HashMap<>();
+    private String signature;
+    private String firstShelfKey;
+    private int shelfPosition = -1;
+    private boolean firstFocusDone;
+    private boolean reportedDrawn;
+
+    private TextView heroTitleView;
+    private TextView heroSubtitleView;
+    private String heroTitle = "";
+    private String heroSubtitle = "";
+
+    private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            AppCatalog.markDirty();
+            refresh();
+        }
+    };
+
+    /** Lumen has stayed on screen long enough to count as working: reset the crash guard. */
+    private final Runnable markStable = () -> {
+        boolean wasSafe = prefs.isSafeMode();
+        prefs.setSafeMode(false);
+        if (wasSafe) toast("Home button opens Lumen again");
+    };
+
+    // ---- Lifecycle ----------------------------------------------------------
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,12 +112,60 @@ public class MainActivity extends Activity implements TileAdapter.Host {
         setContentView(R.layout.activity_main);
         prefs = new Prefs(this);
         images = new ImageLoader(this, io, main);
-        scroll = findViewById(R.id.scroll);
-        rows = findViewById(R.id.rows);
-        focusTitle = findViewById(R.id.focusTitle);
-        focusSubtitle = findViewById(R.id.focusSubtitle);
-        backdrop = new Backdrop(findViewById(R.id.backdropA), findViewById(R.id.backdropB),
-                main, images, getExternalFilesDir("wallpapers"), getResources());
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        radius = dp(10);
+        gap = dp(16);
+        side = dp(48);
+        shelfW = dp(224);
+        shelfH = Math.round(shelfW * 9f / 16f);
+        smallW = dp(168);
+        smallH = Math.round(smallW * 9f / 16f);
+        gridW = GridSpacing.tileWidth(dm.widthPixels, side, gap, SPANS);
+        gridH = Math.round(gridW * 9f / 16f);
+
+        art = new ArtCache(this, io, main, radius);
+        backdrop = new Backdrop(findViewById(R.id.backdropA), findViewById(R.id.backdropB), io, main, images,
+                new File(userDir(), "wallpapers"),
+                // Once the backdrop is opaque the window background is pure overdraw.
+                () -> getWindow().setBackgroundDrawable(null));
+
+        home = findViewById(R.id.home);
+        adapter = new HomeAdapter(this, radius, gap, side, side, SPANS);
+        layout = new HomeLayoutManager(this, SPANS, KEYLINE, pos -> adapter.snapsToTop(pos));
+        GridLayoutManager.SpanSizeLookup spans = new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return adapter.spanSize(position);
+            }
+        };
+        spans.setSpanIndexCacheEnabled(true);
+        layout.setSpanSizeLookup(spans);
+        home.setLayoutManager(layout);
+        home.setAdapter(adapter);
+        home.addItemDecoration(new GridSpacing(side, gap));
+        home.setItemAnimator(null);
+        home.setHasFixedSize(true);
+        home.setItemViewCacheSize(8);
+        // The backdrop images use Z 0/1 to order their crossfade; keep the list above both.
+        // (No background means no outline, so this draws no shadow.)
+        home.setZ(2f);
+
+        // Draw immediately from the in-memory list or the disk snapshot.
+        List<AppEntry> quick = AppCatalog.quick(this);
+        if (quick != null) {
+            apps = quick;
+            rebuild();
+        }
+        refresh();
+
+        IntentFilter f = new IntentFilter();
+        f.addAction(Intent.ACTION_PACKAGE_ADDED);
+        f.addAction(Intent.ACTION_PACKAGE_REMOVED);
+        f.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        f.addAction(Intent.ACTION_PACKAGE_REPLACED);
+        f.addDataScheme("package");
+        registerReceiver(packageReceiver, f);
 
         if (checkSelfPermission(EPG_PERMISSION) != PackageManager.PERMISSION_GRANTED && !prefs.askedForEpg()) {
             prefs.setAskedForEpg();
@@ -77,21 +173,11 @@ public class MainActivity extends Activity implements TileAdapter.Host {
         }
     }
 
-    /** Lumen has stayed on screen long enough to count as working: reset the crash guard. */
-    private final Runnable markStable = () -> {
-        boolean wasSafe = prefs.isSafeMode();
-        // Clears crash and redirect history too. Old crashes must not count once
-        // Lumen has shown it works, even if safe mode never switched on (the
-        // watcher lives in Lumen's process, so it can miss events while we crash).
-        prefs.setSafeMode(false);
-        android.util.Log.i("Lumen", "stable: guard cleared (was safe=" + wasSafe + ")");
-        if (wasSafe) toast("Home button opens Lumen again");
-    };
-
     @Override
     protected void onResume() {
         super.onResume();
-        reload(false);
+        rebuild(); // cheap no-op unless recents or settings changed while away
+        refresh();
         main.postDelayed(markStable, 5_000);
     }
 
@@ -104,19 +190,28 @@ public class MainActivity extends Activity implements TileAdapter.Host {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Home pressed while Lumen is already showing: go back to the top.
-        goToTop();
+        goToTop(); // Home pressed while Lumen is showing
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == REQ_EPG) reload(true);
+        if (requestCode == REQ_EPG) refresh();
+        if (requestCode == REQ_STORAGE) {
+            backdrop.invalidate();
+            signature = null;
+            rebuild();
+        }
     }
 
     @Override
     public void onBackPressed() {
-        // A launcher has nowhere to go back to. Use Back to return to the top instead.
-        goToTop();
+        goToTop(); // a launcher has nowhere to go back to
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        Motion.onKey(event);
+        return super.dispatchKeyEvent(event);
     }
 
     @Override
@@ -131,211 +226,363 @@ public class MainActivity extends Activity implements TileAdapter.Host {
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        if (level >= TRIM_MEMORY_BACKGROUND) images.clear();
+        if (level >= TRIM_MEMORY_UI_HIDDEN) {
+            // Another app is in front: hand memory back to it. Art reloads from disk in a few ms.
+            backdrop.trim();
+            images.clear();
+        }
+        if (level >= TRIM_MEMORY_BACKGROUND) art.trim();
     }
 
     @Override
     protected void onDestroy() {
+        unregisterReceiver(packageReceiver);
         io.shutdownNow();
         super.onDestroy();
     }
 
     // ---- Loading ------------------------------------------------------------
 
-    private void reload(boolean force) {
-        final int gen = ++loadGeneration;
+    /** Background: rescan only if packages changed, reload Continue Watching, then rebuild. */
+    private boolean stressRead;
+
+    private void refresh() {
+        final boolean readStress = !stressRead;
+        stressRead = true;
         io.execute(() -> {
-            List<AppEntry> apps = AppRepository.load(this);
-            List<WatchNext.Item> watch = WatchNext.load(this);
+            if (readStress) readStressSetting();
+            List<AppEntry> scanned = AppCatalog.needsScan(this) ? AppCatalog.scan(this) : null;
+            List<AppEntry> current = scanned != null ? scanned : AppCatalog.quick(this);
+            List<WatchNext.Item> w = checkSelfPermission(EPG_PERMISSION) == PackageManager.PERMISSION_GRANTED
+                    ? WatchNext.load(this) : Collections.emptyList();
+            if (scanned != null) art.prune(scanned);
             main.post(() -> {
-                if (gen != loadGeneration || isDestroyed()) return;
-                bind(apps, watch, force);
+                if (isDestroyed()) return;
+                if (current != null) apps = current;
+                watch = w;
+                rebuild();
             });
         });
     }
 
-    private void bind(List<AppEntry> apps, List<WatchNext.Item> watch, boolean force) {
-        appsByPkg.clear();
-        Set<String> installed = new HashSet<>();
-        for (AppEntry a : apps) {
-            appsByPkg.put(a.pkg, a);
-            installed.add(a.pkg);
-        }
-        prefs.seedFavoritesIfNeeded(installed);
+    /** Rebuilds the page from current state. Does nothing if nothing visible changed. */
+    private void rebuild() {
+        byPkg.clear();
+        for (AppEntry a : apps) byPkg.put(a.pkg, a);
+        if (!apps.isEmpty()) prefs.seedFavoritesIfNeeded(byPkg.keySet());
 
-        List<String> favs = new ArrayList<>();
-        for (String p : prefs.favorites()) if (installed.contains(p)) favs.add(p);
         Set<String> hidden = prefs.hidden();
+        List<String> favs = new ArrayList<>();
+        for (String p : prefs.favorites()) if (byPkg.containsKey(p) && !hidden.contains(p)) favs.add(p);
+        Set<String> favSet = new HashSet<>(favs);
+        List<String> recents = new ArrayList<>();
+        for (String p : prefs.recents()) {
+            if (recents.size() >= MAX_RECENT_TILES) break;
+            if (byPkg.containsKey(p) && !hidden.contains(p) && !favSet.contains(p)) recents.add(p);
+        }
+        boolean showRecent = prefs.rowEnabled(Prefs.ROW_RECENT);
+        boolean showApps = prefs.rowEnabled(Prefs.ROW_APPS);
+        boolean showQuick = prefs.rowEnabled(Prefs.ROW_QUICK);
 
-        String signature = signature(apps, favs, hidden, watch);
-        if (!force && signature.equals(lastSignature)) return; // nothing changed: no flicker
-        lastSignature = signature;
+        String sig = signature(favs, hidden, recents, showRecent, showApps, showQuick);
+        if (sig.equals(signature)) return;
+        signature = sig;
 
         View focused = getCurrentFocus();
-        String focusKey = focused != null && focused.getTag() instanceof String ? (String) focused.getTag() : null;
+        String focusKey = focused instanceof TileView && ((TileView) focused).tile() != null
+                ? ((TileView) focused).tile().key : null;
 
-        rows.removeViews(STATIC_CHILDREN, rows.getChildCount() - STATIC_CHILDREN);
+        List<HomeAdapter.Item> items = new ArrayList<>();
+        items.add(HomeAdapter.Item.header());
 
-        // Row 0: Top Shelf
         List<Tile> shelf = new ArrayList<>();
-        for (String p : favs) {
-            if (hidden.contains(p)) continue;
-            shelf.add(appTile(appsByPkg.get(p), 0, true));
-        }
-        if (shelf.isEmpty()) {
-            Tile hint = systemTile("shelf:hint", 0, "Add apps here",
-                    "Long-press any app (or press Menu) and choose Add to Top Shelf");
-            hint.onClick = () -> toast("Long-press an app and choose Add to Top Shelf");
-            shelf.add(hint);
-        }
-        addRow("Top Shelf", shelf, 224, 126, false);
+        for (String p : favs) shelf.add(appTile(byPkg.get(p), "fav:"));
+        if (shelf.isEmpty()) shelf.add(hintTile());
+        if (!showQuick) shelf.add(lumenSettingsTile()); // settings must stay reachable
+        firstShelfKey = shelf.get(0).key;
+        items.add(HomeAdapter.Item.title("shelf", "Top Shelf"));
+        shelfPosition = items.size();
+        items.add(HomeAdapter.Item.row("shelf", shelf, shelfW, shelfH));
 
-        // Row 1: Continue Watching (only if any app publishes it)
         if (!watch.isEmpty()) {
             List<Tile> cw = new ArrayList<>();
-            int i = 0;
-            for (WatchNext.Item w : watch) cw.add(watchTile(w, i++));
-            addRow("Continue Watching", cw, 224, 126, false);
+            for (int i = 0; i < watch.size(); i++) cw.add(watchTile(watch.get(i), i));
+            items.add(HomeAdapter.Item.title("cw", "Continue Watching"));
+            items.add(HomeAdapter.Item.row("cw", cw, shelfW, shelfH));
         }
 
-        // Row 2: every other app, as a grid
-        List<Tile> rest = new ArrayList<>();
-        Set<String> favSet = new HashSet<>(favs);
-        for (AppEntry a : apps) {
-            if (hidden.contains(a.pkg) || favSet.contains(a.pkg)) continue;
-            rest.add(appTile(a, 2, false));
+        if (showRecent && !recents.isEmpty()) {
+            List<Tile> rec = new ArrayList<>();
+            for (String p : recents) rec.add(appTile(byPkg.get(p), "rec:"));
+            items.add(HomeAdapter.Item.title("recent", "Recent"));
+            items.add(HomeAdapter.Item.row("recent", rec, smallW, smallH));
         }
-        if (!rest.isEmpty()) addRow("Apps", rest, 152, 86, true);
 
-        // Row 3: system shortcuts
-        List<Tile> sys = new ArrayList<>();
-        Tile ls = systemTile("sys:lumen", 3, "Lumen settings", "Home button, hidden apps, wallpapers");
-        ls.onClick = this::showLumenSettings;
-        sys.add(ls);
-        Tile fs = systemTile("sys:fire", 3, "Fire TV settings", "Network, display, remotes, updates");
-        fs.onClick = () -> launch(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        sys.add(fs);
-        addRow("System", sys, 152, 86, false);
+        if (showApps) {
+            List<HomeAdapter.Item> grid = new ArrayList<>();
+            for (AppEntry a : apps) {
+                if (hidden.contains(a.pkg) || favSet.contains(a.pkg)) continue;
+                grid.add(HomeAdapter.Item.tile(appTile(a, "app:"), gridW, gridH));
+            }
+            int copies = stressCopies();
+            if (copies > 0 && !grid.isEmpty()) {
+                // Developer stress test: repeat the grid to measure scrolling a large library.
+                int n = grid.size();
+                for (int c = 1; c <= copies; c++) {
+                    for (int i = 0; i < n; i++) {
+                        Tile src = grid.get(i).tile;
+                        Tile t = appTile(src.app, "app" + c + ":");
+                        grid.add(HomeAdapter.Item.tile(t, gridW, gridH));
+                    }
+                }
+            }
+            if (!grid.isEmpty()) {
+                items.add(HomeAdapter.Item.title("apps", "Apps"));
+                items.addAll(grid);
+            }
+        }
 
-        main.post(() -> restoreFocus(focusKey));
+        if (showQuick) {
+            items.add(HomeAdapter.Item.title("quick", "Quick"));
+            items.add(HomeAdapter.Item.row("quick", quickTiles(), smallW, smallH));
+        }
+
+        adapter.submit(items);
+        home.post(() -> {
+            restoreFocus(focusKey);
+            if (!reportedDrawn && !apps.isEmpty()) {
+                reportedDrawn = true;
+                reportFullyDrawn();
+            }
+            warmArt(items);
+        });
     }
 
-    private static String signature(List<AppEntry> apps, List<String> favs, Set<String> hidden,
-                                    List<WatchNext.Item> watch) {
-        StringBuilder sb = new StringBuilder();
-        for (AppEntry a : apps) sb.append(a.pkg).append(',');
-        sb.append('|').append(TextUtils.join(",", favs)).append('|');
+    private String signature(List<String> favs, Set<String> hidden, List<String> recents,
+                             boolean r, boolean a, boolean q) {
+        StringBuilder sb = new StringBuilder(apps.size() * 40);
+        for (AppEntry e : apps) sb.append(e.pkg).append(':').append(e.updated).append(',');
+        sb.append('|').append(favs).append('|');
         List<String> h = new ArrayList<>(hidden);
-        java.util.Collections.sort(h);
-        sb.append(TextUtils.join(",", h)).append('|');
+        Collections.sort(h);
+        sb.append(h).append('|').append(recents).append('|').append(r).append(a).append(q).append('|');
+        sb.append(stressCopies()).append('|');
         for (WatchNext.Item w : watch) sb.append(w.title).append(w.progress).append(',');
         return sb.toString();
     }
 
-    private void addRow(String title, List<Tile> tiles, int wDp, int hDp, boolean grid) {
-        View row = LayoutInflater.from(this).inflate(R.layout.row_section, rows, false);
-        ((TextView) row.findViewById(R.id.rowTitle)).setText(title);
-        RecyclerView rv = row.findViewById(R.id.rowList);
-        if (grid) {
-            rv.setLayoutManager(new GridLayoutManager(this, GRID_COLUMNS));
-            rv.setNestedScrollingEnabled(false);
-        } else {
-            rv.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+    /**
+     * The user-visible folder for wallpapers (and the benchmark stress file).
+     * /sdcard/Lumen, because Android 11+ blocks adb from writing into an app's
+     * own Android/data folder. Reading it needs the optional storage permission.
+     */
+    @SuppressWarnings("deprecation")
+    static File userDir() {
+        return new File(Environment.getExternalStorageDirectory(), "Lumen");
+    }
+
+    private String storagePermission() {
+        return Build.VERSION.SDK_INT >= 33
+                ? "android.permission.READ_MEDIA_IMAGES"
+                : "android.permission.READ_EXTERNAL_STORAGE";
+    }
+
+    private volatile int stress;
+
+    /**
+     * Benchmarking only: `adb shell setprop debug.lumen.stress 8` repeats the
+     * Apps grid 8 extra times, to measure scrolling a large library. Read once,
+     * in the background, at startup; 0 (off) in normal use.
+     */
+    private void readStressSetting() {
+        try {
+            java.lang.Process p = Runtime.getRuntime().exec(new String[]{"getprop", "debug.lumen.stress"});
+            try (java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(p.getInputStream()))) {
+                String line = r.readLine();
+                stress = line == null || line.trim().isEmpty() ? 0
+                        : Math.max(0, Math.min(50, Integer.parseInt(line.trim())));
+            }
+        } catch (Exception e) {
+            stress = 0;
         }
-        rv.setItemAnimator(null);
-        rv.setAdapter(new TileAdapter(tiles, dp(wDp), dp(hDp), dp(12), this));
-        rows.addView(row);
+    }
+
+    private int stressCopies() {
+        return stress;
+    }
+
+    /** Pre-renders art for tiles that are not on screen yet, so scrolling never shows a placeholder. */
+    private void warmArt(List<HomeAdapter.Item> items) {
+        for (HomeAdapter.Item it : items) {
+            if (it.type == HomeAdapter.TILE && it.tile.app != null) {
+                art.load(it.tile.app, it.tileW, it.tileH, b -> { });
+            } else if (it.type == HomeAdapter.ROW) {
+                for (Tile t : it.tiles) if (t.app != null) art.load(t.app, it.tileW, it.tileH, b -> { });
+            }
+        }
     }
 
     private void restoreFocus(String key) {
-        View target = key != null ? rows.findViewWithTag(key) : null;
-        if (target == null) target = firstTile();
-        if (target != null) target.requestFocus();
+        View target = key != null ? home.findViewWithTag(key) : null;
+        if (target != null) {
+            target.requestFocus();
+            return;
+        }
+        if (!firstFocusDone || getCurrentFocus() == null) {
+            firstFocusDone = focusShelf();
+        }
     }
 
-    private View firstTile() {
-        if (rows.getChildCount() <= STATIC_CHILDREN) return null;
-        RecyclerView rv = rows.getChildAt(STATIC_CHILDREN).findViewById(R.id.rowList);
-        return rv.getChildCount() > 0 ? rv.getChildAt(0) : null;
+    /** Focuses the Top Shelf tile you were last on (or the first one). */
+    private boolean focusShelf() {
+        if (shelfPosition < 0) return false;
+        View row = layout.findViewByPosition(shelfPosition);
+        if (row instanceof RowRecyclerView) {
+            RowRecyclerView rv = (RowRecyclerView) row;
+            RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(rv.lastFocused());
+            if (vh == null) vh = rv.findViewHolderForAdapterPosition(0);
+            if (vh != null) return vh.itemView.requestFocus();
+        }
+        View first = firstShelfKey != null ? home.findViewWithTag(firstShelfKey) : null;
+        return first != null && first.requestFocus();
     }
 
     private void goToTop() {
-        scroll.smoothScrollTo(0, 0);
-        if (rows.getChildCount() > STATIC_CHILDREN) {
-            RecyclerView rv = rows.getChildAt(STATIC_CHILDREN).findViewById(R.id.rowList);
-            rv.scrollToPosition(0);
-            main.post(() -> {
-                View first = firstTile();
-                if (first != null) first.requestFocus();
-            });
-        }
+        home.smoothScrollToPosition(0);
+        home.post(this::focusShelf);
     }
 
     // ---- Tiles --------------------------------------------------------------
 
-    private Tile appTile(AppEntry a, int row, boolean favorite) {
+    private Tile appTile(AppEntry a, String prefix) {
         Tile t = new Tile();
-        t.key = (favorite ? "fav:" : "app:") + a.pkg;
-        t.row = row;
+        t.key = prefix + a.pkg;
         t.title = a.label;
-        t.banner = a.banner;
-        t.icon = a.icon;
-        t.color = a.color;
+        t.app = a;
+        t.color = art.color(a);
         t.backdropPkg = a.pkg;
-        t.onClick = () -> launch(a.launch);
-        t.onLongClick = () -> showAppMenu(a, favorite);
+        t.onClick = () -> launchApp(a);
+        t.onLongClick = () -> showAppMenu(a, prefix);
         return t;
     }
 
     private Tile watchTile(WatchNext.Item w, int index) {
-        AppEntry owner = w.pkg != null ? appsByPkg.get(w.pkg) : null;
+        AppEntry owner = w.pkg != null ? byPkg.get(w.pkg) : null;
         Tile t = new Tile();
         t.key = "cw:" + index + ":" + w.title;
-        t.row = 1;
         t.title = w.title;
         t.subtitle = owner != null
                 ? (w.subtitle != null ? w.subtitle + "  ·  " + owner.label : owner.label)
                 : w.subtitle;
         t.imageUri = w.posterUri;
-        t.icon = owner != null ? owner.icon : null;
-        t.color = owner != null ? owner.color : 0xFF1B2333;
+        t.color = owner != null ? art.color(owner) : 0xFF1B2333;
         t.progress = w.progress;
         t.backdropPkg = w.pkg;
         t.onClick = () -> {
             Intent i = w.toIntent();
-            if (i == null && owner != null) i = owner.launch;
+            if (i == null && owner != null) i = owner.launchIntent();
             if (i != null) launch(i);
         };
         return t;
     }
 
-    private Tile systemTile(String key, int row, String title, String subtitle) {
+    private Tile textTile(String key, String title, String caption, int color, Runnable onClick) {
         Tile t = new Tile();
         t.key = key;
-        t.row = row;
         t.title = title;
-        t.subtitle = subtitle;
-        t.icon = getDrawable(R.drawable.ic_lumen);
-        t.color = 0xFF1B2333;
+        t.caption = caption;
+        t.subtitle = caption;
+        t.color = color;
+        t.onClick = onClick;
         return t;
     }
 
+    private Tile hintTile() {
+        return textTile("shelf:hint", "Add apps here", "Long-press an app, or press ☰", 0xFF1E2A40,
+                () -> toast("Long-press an app (or press Menu) and choose Add to Top Shelf"));
+    }
+
+    private Tile lumenSettingsTile() {
+        return textTile("shelf:settings", "Lumen", "Settings", 0xFF2A2F3A, this::showLumenSettings);
+    }
+
+    private List<Tile> quickTiles() {
+        List<Tile> q = new ArrayList<>();
+        q.add(textTile("q:wifi", "Wi-Fi", "Network", 0xFF1F3A5C,
+                () -> openSetting(Settings.ACTION_WIFI_SETTINGS)));
+        q.add(textTile("q:display", "Display & Sound", "Picture, audio", 0xFF33284F,
+                () -> openSetting(Settings.ACTION_DISPLAY_SETTINGS)));
+        q.add(textTile("q:remotes", "Remotes", "Bluetooth devices", 0xFF1F4A47,
+                () -> openSetting(Settings.ACTION_BLUETOOTH_SETTINGS)));
+        q.add(textTile("q:apps", "Manage apps", "Storage, uninstall", 0xFF4A3A1F,
+                () -> openSetting(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)));
+        q.add(textTile("q:settings", "Settings", "All Fire TV settings", 0xFF2A2F3A,
+                () -> openSetting(Settings.ACTION_SETTINGS)));
+        q.add(textTile("q:lumen", "Lumen", "Layout, Home button", 0xFF3A2430, this::showLumenSettings));
+        return q;
+    }
+
+    // ---- HomeAdapter.Host ---------------------------------------------------
+
     @Override
-    public void onTileFocused(Tile t) {
-        focusTitle.setText(t.title);
-        focusSubtitle.setText(t.subtitle != null ? t.subtitle : "");
-        if (t.row == 0) scroll.smoothScrollTo(0, 0);
-        backdrop.request(t.backdropPkg, t.color, t.imageUri);
+    public void bindHeader(View header) {
+        heroTitleView = header.findViewById(R.id.heroTitle);
+        heroSubtitleView = header.findViewById(R.id.heroSubtitle);
+        heroTitleView.setText(heroTitle);
+        heroSubtitleView.setText(heroSubtitle);
     }
 
     @Override
-    public ImageLoader images() {
-        return images;
+    public void bindArt(TileView view, Tile t, int w, int h) {
+        if (t.app != null) {
+            Bitmap hit = art.peek(t.app, w, h);
+            if (hit != null) {
+                view.setArt(hit, false);
+                return;
+            }
+            art.load(t.app, w, h, bmp -> {
+                if (bmp == null || view.tile() != t) return;
+                view.setArt(bmp, false);
+                if (view.isFocused()) onTileFocused(view); // backdrop can now use the art
+            });
+        } else if (t.imageUri != null) {
+            images.load(t.imageUri, w, bmp -> {
+                if (bmp != null && view.tile() == t) view.setArt(bmp, true);
+            });
+        }
     }
 
-    // ---- Menus --------------------------------------------------------------
+    @Override
+    public void onTileFocused(TileView view) {
+        Tile t = view.tile();
+        if (t == null) return;
+        heroTitle = t.title;
+        heroSubtitle = t.subtitle != null ? t.subtitle : "";
+        if (heroTitleView != null) {
+            heroTitleView.setText(heroTitle);
+            heroSubtitleView.setText(heroSubtitle);
+        }
+        backdrop.request(t.backdropPkg, t.imageUri, t.color, view.backdropSeed());
+    }
 
-    private void showAppMenu(AppEntry a, boolean favorite) {
+    // ---- Actions ------------------------------------------------------------
+
+    private void launchApp(AppEntry a) {
+        prefs.noteLaunch(a.pkg);
+        launch(a.launchIntent());
+    }
+
+    private void openSetting(String action) {
+        try {
+            startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (ActivityNotFoundException | SecurityException e) {
+            launch(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+    }
+
+    private void showAppMenu(AppEntry a, String prefix) {
+        boolean favorite = "fav:".equals(prefix);
         List<String> labels = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
         if (favorite) {
@@ -348,7 +595,7 @@ public class MainActivity extends Activity implements TileAdapter.Host {
                 List<String> f = prefs.favorites();
                 f.remove(a.pkg);
                 prefs.setFavorites(f);
-                reload(true);
+                rebuild();
             });
         } else {
             labels.add("Add to Top Shelf");
@@ -356,7 +603,14 @@ public class MainActivity extends Activity implements TileAdapter.Host {
                 List<String> f = prefs.favorites();
                 if (!f.contains(a.pkg)) f.add(a.pkg);
                 prefs.setFavorites(f);
-                reload(true);
+                rebuild();
+            });
+        }
+        if ("rec:".equals(prefix)) {
+            labels.add("Remove from Recent");
+            actions.add(() -> {
+                prefs.forgetRecent(a.pkg);
+                rebuild();
             });
         }
         labels.add("Hide");
@@ -364,14 +618,13 @@ public class MainActivity extends Activity implements TileAdapter.Host {
             Set<String> h = prefs.hidden();
             h.add(a.pkg);
             prefs.setHidden(h);
-            reload(true);
+            rebuild();
         });
         labels.add("App info");
         actions.add(() -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", a.pkg, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
 
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(a.label)
+        dialog().setTitle(a.label)
                 .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
                 .show();
     }
@@ -384,39 +637,54 @@ public class MainActivity extends Activity implements TileAdapter.Host {
         f.set(i, f.get(j));
         f.set(j, pkg);
         prefs.setFavorites(f);
-        reload(true);
+        rebuild();
     }
 
     private void showLumenSettings() {
         boolean watcherOn = isHomeWatcherEnabled();
         String[] items = {
                 "Home button: " + (watcherOn ? "On" : "Off — how to turn on"),
+                "Layout",
                 "Hidden apps (" + prefs.hidden().size() + ")",
                 "Wallpapers",
                 "Reload wallpapers and apps",
                 "Reset Top Shelf",
                 "Open Fire TV home",
         };
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Lumen " + BuildConfigHelper.versionName(this))
+        dialog().setTitle("Lumen " + BuildConfigHelper.versionName(this))
                 .setItems(items, (d, which) -> {
                     switch (which) {
                         case 0: showHomeButtonHelp(watcherOn); break;
-                        case 1: showHiddenApps(); break;
-                        case 2: showWallpaperHelp(); break;
-                        case 3:
+                        case 1: showLayoutOptions(); break;
+                        case 2: showHiddenApps(); break;
+                        case 3: showWallpaperHelp(); break;
+                        case 4:
                             images.clear();
                             backdrop.invalidate();
-                            reload(true);
+                            AppCatalog.markDirty();
+                            signature = null;
+                            refresh();
                             break;
-                        case 4:
+                        case 5:
                             prefs.resetFavorites();
-                            reload(true);
+                            rebuild();
                             break;
-                        case 5: openFireHome(); break;
+                        case 6: openFireHome(); break;
                         default: break;
                     }
                 })
+                .show();
+    }
+
+    private void showLayoutOptions() {
+        final String[] keys = {Prefs.ROW_RECENT, Prefs.ROW_APPS, Prefs.ROW_QUICK};
+        String[] labels = {"Recent row", "Apps grid", "Quick controls row"};
+        boolean[] checked = new boolean[keys.length];
+        for (int i = 0; i < keys.length; i++) checked[i] = prefs.rowEnabled(keys[i]);
+        dialog().setTitle("Show on the home screen")
+                .setMultiChoiceItems(labels, checked, (d, which, on) -> prefs.setRowEnabled(keys[which], on))
+                .setPositiveButton("Done", null)
+                .setOnDismissListener(d -> rebuild())
                 .show();
     }
 
@@ -428,13 +696,11 @@ public class MainActivity extends Activity implements TileAdapter.Host {
                 : "Fire TV hides the setting for this, so turn it on from a computer with ADB:\n\n"
                   + "adb shell settings put secure enabled_accessibility_services " + component + "\n"
                   + "adb shell settings put secure accessibility_enabled 1";
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Home button")
+        dialog().setTitle("Home button")
                 .setMessage(msg)
                 .setPositiveButton("OK", null)
                 .setNeutralButton("Accessibility settings", (d, w) ->
-                        launch(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)))
+                        openSetting(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 .show();
     }
 
@@ -446,40 +712,43 @@ public class MainActivity extends Activity implements TileAdapter.Host {
         }
         String[] names = new String[pkgs.size()];
         for (int i = 0; i < pkgs.size(); i++) {
-            AppEntry a = appsByPkg.get(pkgs.get(i));
+            AppEntry a = byPkg.get(pkgs.get(i));
             names[i] = a != null ? a.label : pkgs.get(i);
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Choose an app to show again")
+        dialog().setTitle("Choose an app to show again")
                 .setItems(names, (d, which) -> {
                     Set<String> h = prefs.hidden();
                     h.remove(pkgs.get(which));
                     prefs.setHidden(h);
-                    reload(true);
+                    rebuild();
                 })
                 .show();
     }
 
     private void showWallpaperHelp() {
-        String path = backdrop.folder() != null ? backdrop.folder().getAbsolutePath() : "(unavailable)";
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Wallpapers")
-                .setMessage("Put images in:\n" + path + "\n\n"
+        boolean canRead = checkSelfPermission(storagePermission()) == PackageManager.PERMISSION_GRANTED;
+        String path = backdrop.folder().getAbsolutePath();
+        AlertDialog.Builder b = dialog().setTitle("Wallpapers")
+                .setMessage("Copy images to:\n" + path + "\n\n"
                         + "default.jpg  — shown for every app\n"
                         + "<package>.jpg  — shown when that app is focused, e.g. com.netflix.ninja.jpg\n\n"
                         + "PNG and WebP work too. 1920×1080 is ideal. Then choose "
-                        + "\"Reload wallpapers and apps\".")
-                .setPositiveButton("OK", null)
-                .show();
+                        + "\"Reload wallpapers and apps\".\n\n"
+                        + "Without wallpapers, the background is a soft blur of the focused app."
+                        + (canRead ? "" : "\n\nLumen needs permission to read photos to show them."))
+                .setPositiveButton("OK", null);
+        if (!canRead) {
+            b.setNeutralButton("Allow", (d, w) -> requestPermissions(new String[]{storagePermission()}, REQ_STORAGE));
+        }
+        b.show();
     }
 
     private void openFireHome() {
         prefs.bypassFireHomeFor(60_000);
-        Intent i = new Intent(Intent.ACTION_MAIN)
+        launch(new Intent(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_HOME)
                 .setPackage(FIRE_LAUNCHER)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        launch(i);
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
     }
 
     private boolean isHomeWatcherEnabled() {
@@ -488,18 +757,22 @@ public class MainActivity extends Activity implements TileAdapter.Host {
         if (enabled == null) return false;
         ComponentName me = new ComponentName(this, HomeWatcherService.class);
         for (String s : enabled.split(":")) {
-            ComponentName c = ComponentName.unflattenFromString(s);
-            if (me.equals(c)) return true;
+            if (me.equals(ComponentName.unflattenFromString(s))) return true;
         }
         return false;
     }
 
     // ---- Helpers ------------------------------------------------------------
 
+    private AlertDialog.Builder dialog() {
+        return new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
+    }
+
     private void launch(Intent i) {
         try {
             startActivity(i);
         } catch (ActivityNotFoundException | SecurityException e) {
+            Log.w(TAG, "launch failed: " + e);
             toast("Can't open that");
         }
     }
@@ -509,6 +782,6 @@ public class MainActivity extends Activity implements TileAdapter.Host {
     }
 
     private int dp(int v) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()));
     }
 }

@@ -1,0 +1,7 @@
+# Ahead-of-time compile everything on the home screen's hot path: startup,
+# binding tiles, and scrolling. Applied at install by androidx.profileinstaller.
+HSPLio/github/grimmmyy/lumen/**->**(**)**
+Lio/github/grimmmyy/lumen/**;
+HSPLandroidx/recyclerview/widget/**->**(**)**
+Landroidx/recyclerview/widget/**;
+HSPLandroidx/core/view/**->**(**)**

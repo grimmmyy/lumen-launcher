@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Text views use fixed heights on purpose: changing the text of a fixed-size
+  TextView only redraws it, while a wrap_content one forces a layout pass of
+  the whole list on every focus move.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="168dp"
+    android:orientation="horizontal" android:baselineAligned="false"
+    android:paddingStart="48dp" android:paddingEnd="48dp" android:paddingTop="30dp">
+
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1"
+        android:layout_height="wrap_content" android:orientation="vertical">
+        <TextView android:id="@+id/heroTitle"
+            android:layout_width="match_parent" android:layout_height="44dp"
+            android:textColor="#FFFFFFFF" android:textSize="30sp"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"
+            android:gravity="center_vertical" />
+        <TextView android:id="@+id/heroSubtitle"
+            android:layout_width="match_parent" android:layout_height="24dp"
+            android:textColor="#B3FFFFFF" android:textSize="15sp"
+            android:maxLines="1" android:ellipsize="end" android:gravity="center_vertical" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/clockBlock"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:orientation="vertical" android:gravity="end">
+        <TextClock android:layout_width="wrap_content" android:layout_height="44dp"
+            android:format12Hour="h:mm" android:format24Hour="HH:mm"
+            android:textColor="#FFFFFFFF" android:textSize="30sp" android:gravity="center_vertical"
+            android:includeFontPadding="false" />
+        <TextClock android:layout_width="wrap_content" android:layout_height="24dp"
+            android:format12Hour="EEEE, MMM d" android:format24Hour="EEEE, MMM d"
+            android:textColor="#B3FFFFFF" android:textSize="15sp" android:gravity="center_vertical" />
+    </LinearLayout>
+</LinearLayout>

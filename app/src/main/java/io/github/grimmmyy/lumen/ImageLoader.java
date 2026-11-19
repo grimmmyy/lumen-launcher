@@ -14,10 +14,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.Executor;
 
-/** Small async bitmap loader with a memory cache. Handles http(s), content and file sources. */
+/** Async poster loader with a small memory cache. Handles http(s), content and file sources. */
 final class ImageLoader {
     interface Callback {
-        void onLoaded(Bitmap bitmap); // null on failure
+        void onLoaded(Bitmap bitmap); // main thread; null on failure
     }
 
     private static final int MAX_BYTES = 8 * 1024 * 1024;
@@ -31,8 +31,8 @@ final class ImageLoader {
         this.ctx = ctx.getApplicationContext();
         this.io = io;
         this.main = main;
-        // Keep the cache small: this device has little RAM to spare.
-        int size = (int) Math.min(Runtime.getRuntime().maxMemory() / 10, 24L * 1024 * 1024);
+        // Small on purpose: this device has little RAM to spare.
+        int size = (int) Math.min(Runtime.getRuntime().maxMemory() / 12, 12L * 1024 * 1024);
         cache = new LruCache<String, Bitmap>(size) {
             @Override
             protected int sizeOf(String key, Bitmap value) {
@@ -49,7 +49,7 @@ final class ImageLoader {
             return;
         }
         io.execute(() -> {
-            Bitmap bmp = decode(source, targetWidth);
+            Bitmap bmp = decodeSync(source, targetWidth);
             if (bmp != null) cache.put(key, bmp);
             main.post(() -> cb.onLoaded(bmp));
         });
@@ -59,7 +59,8 @@ final class ImageLoader {
         cache.evictAll();
     }
 
-    private Bitmap decode(String source, int targetWidth) {
+    /** Blocking decode, sampled down to about targetWidth. Background threads only. */
+    Bitmap decodeSync(String source, int targetWidth) {
         byte[] data = read(source);
         if (data == null) return null;
         BitmapFactory.Options o = new BitmapFactory.Options();
@@ -70,7 +71,6 @@ final class ImageLoader {
         while (o.outWidth / (sample * 2) >= targetWidth) sample *= 2;
         BitmapFactory.Options d = new BitmapFactory.Options();
         d.inSampleSize = sample;
-        d.inPreferredConfig = Bitmap.Config.RGB_565; // half the memory; fine for photos
         return BitmapFactory.decodeByteArray(data, 0, data.length, d);
     }
 

@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
+    <!-- Optional, only to read wallpapers from /sdcard/Lumen. Asked for from the Wallpapers menu. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <application
         android:name=".LumenApp"

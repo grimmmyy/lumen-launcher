@@ -10,8 +10,8 @@ android {
         applicationId 'io.github.grimmmyy.lumen'
         minSdk 26
         targetSdk 34
-        versionCode 2
-        versionName '0.1.1'
+        versionCode 3
+        versionName '0.2.0'
     }
 
     buildTypes {
@@ -33,4 +33,6 @@ android {
 dependencies {
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
     implementation 'androidx.core:core:1.13.1'
+    // Applies baseline-prof.txt at install so the hot path is compiled, not interpreted.
+    implementation 'androidx.profileinstaller:profileinstaller:1.3.1'
 }

@@ -1,61 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#FF000000">
+<!--
+  Three full-screen layers only: two backdrop images (crossfading; the scrim is
+  baked into their bitmaps) and the list. No root background: the window
+  background covers the first frame, and is removed once the backdrop is
+  opaque, so nothing is painted twice.
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
 
     <ImageView android:id="@+id/backdropA"
         android:layout_width="match_parent" android:layout_height="match_parent"
-        android:scaleType="centerCrop" android:importantForAccessibility="no" />
+        android:scaleType="fitXY" android:importantForAccessibility="no" />
 
     <ImageView android:id="@+id/backdropB"
         android:layout_width="match_parent" android:layout_height="match_parent"
-        android:scaleType="centerCrop" android:alpha="0" android:importantForAccessibility="no" />
+        android:scaleType="fitXY" android:importantForAccessibility="no" />
 
-    <View android:layout_width="match_parent" android:layout_height="match_parent"
-        android:background="@drawable/scrim" />
-
-    <androidx.core.widget.NestedScrollView
-        android:id="@+id/scroll"
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/home"
         android:layout_width="match_parent" android:layout_height="match_parent"
         android:clipChildren="false" android:clipToPadding="false"
-        android:scrollbars="none" android:descendantFocusability="afterDescendants">
-
-        <LinearLayout android:id="@+id/rows"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:clipChildren="false" android:clipToPadding="false"
-            android:paddingStart="40dp" android:paddingEnd="32dp"
-            android:paddingTop="28dp" android:paddingBottom="48dp">
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <LinearLayout android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:orientation="vertical">
-                    <TextView android:id="@+id/focusTitle"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:textColor="#FFFFFFFF" android:textSize="32sp" android:textStyle="bold"
-                        android:maxLines="1" android:ellipsize="end"
-                        android:shadowColor="#AA000000" android:shadowRadius="8" />
-                    <TextView android:id="@+id/focusSubtitle"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:textColor="#CCFFFFFF" android:textSize="16sp"
-                        android:maxLines="1" android:ellipsize="end" />
-                </LinearLayout>
-
-                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:gravity="end">
-                    <TextClock android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:format12Hour="h:mm" android:format24Hour="HH:mm"
-                        android:textColor="#FFFFFFFF" android:textSize="32sp" />
-                    <TextClock android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:format12Hour="EEEE, MMM d" android:format24Hour="EEEE, MMM d"
-                        android:textColor="#CCFFFFFF" android:textSize="14sp" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <Space android:layout_width="match_parent" android:layout_height="130dp" />
-        </LinearLayout>
-    </androidx.core.widget.NestedScrollView>
-</FrameLayout>
+        android:paddingBottom="64dp"
+        android:overScrollMode="never" android:scrollbars="none"
+        android:descendantFocusability="afterDescendants" />
+</merge>

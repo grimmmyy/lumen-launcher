@@ -26,9 +26,10 @@ final class Prefs {
             "com.disney.disneyplus",
             "com.amazon.firetv.youtube",
             "com.google.android.youtube.tv",
-            "com.lagradost.cloudstream3.prerelease",
-            "com.amarullz.androidtv.animetvjmto.side",
-            "app.hoshi.tv",
+            "com.hbo.hbonow",
+            "com.wbd.stream",
+            "com.hulu.plus",
+            "com.plexapp.android",
             "com.tubitv.ott",
     };
 
@@ -78,6 +79,43 @@ final class Prefs {
 
     boolean isFireHomeBypassed() {
         return System.currentTimeMillis() < sp.getLong(KEY_BYPASS_UNTIL, 0);
+    }
+
+    // ---- Layout options -----------------------------------------------------
+
+    static final String ROW_RECENT = "row_recent";
+    static final String ROW_QUICK = "row_quick";
+    static final String ROW_APPS = "row_apps";
+    private static final String KEY_RECENTS = "recents";
+    private static final int MAX_RECENTS = 12;
+
+    boolean rowEnabled(String row) {
+        return sp.getBoolean(row, true);
+    }
+
+    void setRowEnabled(String row, boolean on) {
+        sp.edit().putBoolean(row, on).apply();
+    }
+
+    /** Most recently launched first. Tracked by Lumen itself: no usage-access permission needed. */
+    List<String> recents() {
+        String raw = sp.getString(KEY_RECENTS, "");
+        List<String> out = new ArrayList<>();
+        if (!TextUtils.isEmpty(raw)) out.addAll(Arrays.asList(raw.split(",")));
+        return out;
+    }
+
+    void noteLaunch(String pkg) {
+        List<String> r = recents();
+        r.remove(pkg);
+        r.add(0, pkg);
+        while (r.size() > MAX_RECENTS) r.remove(r.size() - 1);
+        sp.edit().putString(KEY_RECENTS, TextUtils.join(",", r)).apply();
+    }
+
+    void forgetRecent(String pkg) {
+        List<String> r = recents();
+        if (r.remove(pkg)) sp.edit().putString(KEY_RECENTS, TextUtils.join(",", r)).apply();
     }
 
     // ---- Crash guard --------------------------------------------------------
