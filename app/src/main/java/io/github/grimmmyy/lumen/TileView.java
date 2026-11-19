@@ -88,6 +88,10 @@ final class TileView extends View {
         return tile;
     }
 
+    Bitmap art() {
+        return art;
+    }
+
     /** The app artwork, for the blurred backdrop. Null for posters and text tiles. */
     Bitmap backdropSeed() {
         return cropArt ? null : art;

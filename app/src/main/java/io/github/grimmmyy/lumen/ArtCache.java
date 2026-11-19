@@ -157,7 +157,15 @@ final class ArtCache {
         }
     }
 
-    void trim() {
+    /**
+     * Shrinks the in-memory cache to a third while Lumen is hidden, keeping
+     * {@code keep} (the art on screen): it is marked most recently used first,
+     * so the screen comes back without placeholders even if it was rebuilt.
+     */
+    void trim(java.util.Set<Bitmap> keep) {
+        for (Map.Entry<String, Bitmap> e : memory.snapshot().entrySet()) {
+            if (keep.contains(e.getValue())) memory.get(e.getKey());
+        }
         memory.trimToSize(memory.maxSize() / 3);
     }
 

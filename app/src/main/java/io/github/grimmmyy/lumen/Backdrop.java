@@ -50,7 +50,8 @@ final class Backdrop {
     private final ImageLoader images;
     private final File dir;
     private final Runnable onFirstOpaque;
-    private final LruCache<String, Bitmap> composed = new LruCache<String, Bitmap>(10 * 1024 * 1024) {
+    /** Shared across screens: survives the activity being rebuilt ("Don't keep activities"). */
+    private static final LruCache<String, Bitmap> composed = new LruCache<String, Bitmap>(10 * 1024 * 1024) {
         @Override
         protected int sizeOf(String key, Bitmap value) {
             return value.getByteCount();

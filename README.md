@@ -22,7 +22,21 @@ them, and stays smooth on cheap hardware.
 
 ## Performance
 
-Measured with [`tools/bench.ps1`](tools/bench.ps1) on an Android 11 TV emulator at 1920×1080, 320 dpi
+On a **Fire TV Stick 4K Max** (Fire OS 8, MT8696, 2 GB), Lumen 0.3.2, measured with
+[`tools/bench.ps1`](tools/bench.ps1):
+
+| | |
+|---|---|
+| Janky frames (across a row / down the page / D-pad held) | **0% / 0% / 0%** |
+| Typical frame (p50) / slowest 1% (p99) | **5 ms / 8–11 ms** |
+| Cold start | **291 ms** |
+| Return to Home | **128 ms** (with "Don't keep activities" on; see below) |
+| Memory on screen / while you watch something else | **73 MB / 60 MB** |
+
+The stock Amazon home screen on the same stick: about 160–200 MB, and it stays running in the
+background either way (the Home button opens it for an instant before Lumen takes over).
+
+Emulator comparison, measured with [`tools/bench.ps1`](tools/bench.ps1) on an Android 11 TV emulator at 1920×1080, 320 dpi
 (the Fire TV Stick 4K Max's resolution and density), software GPU, same apps for both builds:
 
 | | 0.1.1 | 0.2.0 |
@@ -100,6 +114,18 @@ opened again. On top of that, Lumen has its own guard: 2 crashes within 5 minute
 within 15 seconds, switches it to safe mode, and the Home button goes to the Amazon home screen. Open Lumen
 from Your Apps; once it has stayed on screen for 5 seconds, the Home button opens Lumen again. A factory
 reset (hold **Back + Right** on the remote for 10 seconds) always restores the stock setup.
+
+> **Force stop turns it off.** Android removes an app's accessibility service from the enabled list
+> whenever the app is force-stopped (Settings → Applications → Lumen → Force stop, or `am force-stop`).
+> Updating Lumen with `adb install -r` keeps it. If the Home button goes back to the Amazon home screen,
+> run the two commands above again.
+
+> **Tip: leave "Don't keep activities" off.** Some "speed up your Fire Stick" guides turn on this
+> developer option. It destroys every app's screen as soon as you leave it, so each return (to Lumen,
+> Netflix, anything) rebuilds that screen from scratch instead of just showing it again: on a Fire TV
+> Stick 4K Max, returning Home takes about 130 ms with it on. Lumen copes with it, but nothing gets
+> faster with it on.
+> Check with `adb shell settings get global always_finish_activities` (1 means on).
 
 Need the Amazon home screen on purpose? Lumen settings → **Open Fire TV home** pauses the redirect for one minute.
 

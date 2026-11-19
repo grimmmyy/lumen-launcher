@@ -16,7 +16,6 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Process;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -39,7 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity implements HomeAdapter.Host {
     private static final String TAG = "Lumen";
@@ -50,11 +48,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private static final float KEYLINE = 0.36f;
     private static final int MAX_RECENT_TILES = 6;
 
-    /** Low-priority workers, so background loading never competes with drawing frames. */
-    private final ExecutorService io = Executors.newFixedThreadPool(2, r -> new Thread(() -> {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-        r.run();
-    }, "lumen-io"));
+    /** Shared with the art cache and kept for the life of the process (see LumenApp). */
+    private final ExecutorService io = LumenApp.io();
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private Prefs prefs;
@@ -133,7 +128,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         gridW = GridSpacing.tileWidth(dm.widthPixels, side, gap, spanCount);
         gridH = Math.round(gridW * 9f / 16f);
 
-        art = new ArtCache(this, io, main, radius);
+        art = LumenApp.art(this, radius);
         backdrop = new Backdrop(findViewById(R.id.backdropA), findViewById(R.id.backdropB), io, main, images,
                 new File(userDir(), "wallpapers"),
                 // Once the backdrop is opaque the window background is pure overdraw.
@@ -193,11 +188,17 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         if (f instanceof TileView) onTileFocused((TileView) f);
         refresh();
         main.postDelayed(markStable, 5_000);
+        // Art trimmed while away is reloaded in the background, after the first frames.
+        main.postDelayed(rewarm, 700);
     }
+
+    private List<HomeAdapter.Item> currentItems = Collections.emptyList();
+    private final Runnable rewarm = () -> warmArt(currentItems);
 
     @Override
     protected void onPause() {
         main.removeCallbacks(markStable);
+        main.removeCallbacks(rewarm);
         super.onPause();
     }
 
@@ -240,19 +241,56 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        if (level >= TRIM_MEMORY_UI_HIDDEN) {
-            // Another app is in front: hand memory back to it. Art reloads from disk in a few ms.
-            backdrop.trim();
-            images.clear();
-        }
-        if (level >= TRIM_MEMORY_BACKGROUND) art.trim();
+        if (level >= TRIM_MEMORY_UI_HIDDEN) releaseMemory();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // Not left to onTrimMemory: while the Home-button service is bound, Android
+        // keeps Lumen at foreground priority and never sends TRIM_MEMORY_UI_HIDDEN.
+        releaseMemory();
+    }
+
+    /**
+     * Another app is in front: hand memory back to it while you watch. Tiles
+     * still on screen keep their art (their views hold it), so returning Home
+     * shows no placeholders; the rest reloads from disk in the background.
+     */
+    private void releaseMemory() {
+        backdrop.trim();
+        images.clear();
+        art.trim(visibleArt());
+        // Bitmap memory is only returned once the Java objects are collected,
+        // and Lumen allocates so little on the Java heap that a GC may not
+        // come for minutes. Nobody is looking at Lumen now, so ask for one.
+        io.execute(() -> Runtime.getRuntime().gc());
     }
 
     @Override
     protected void onDestroy() {
         unregisterReceiver(packageReceiver);
-        io.shutdownNow();
+        main.removeCallbacksAndMessages(null);
+        // The worker threads are shared and live on (see LumenApp); tasks already
+        // queued check isDestroyed() before touching this screen.
         super.onDestroy();
+    }
+
+    /** Art on screen now, to keep in memory while Lumen is hidden. */
+    private java.util.Set<Bitmap> visibleArt() {
+        java.util.Set<Bitmap> out = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        collectArt(home, out);
+        return out;
+    }
+
+    private static void collectArt(View v, java.util.Set<Bitmap> out) {
+        if (v instanceof TileView) {
+            Bitmap b = ((TileView) v).art();
+            if (b != null) out.add(b);
+        } else if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) collectArt(g.getChildAt(i), out);
+        }
     }
 
     // ---- Loading ------------------------------------------------------------
@@ -371,6 +409,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         }
 
         adapter.submit(items);
+        currentItems = items;
         home.post(() -> {
             restoreFocus(focusKey);
             if (!reportedDrawn && !apps.isEmpty()) {
@@ -543,7 +582,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         q.add(iconTile(textTile("q:display", "Display & Sound", "Picture, audio", 0xFF33284F,
                 () -> openSetting(Settings.ACTION_DISPLAY_SETTINGS)), R.drawable.ic_q_display));
         q.add(iconTile(textTile("q:remotes", "Remotes", "Bluetooth devices", 0xFF1F4A47,
-                () -> openSetting(Settings.ACTION_BLUETOOTH_SETTINGS)), R.drawable.ic_q_remote));
+                // Fire OS has no Bluetooth settings action; its Controllers page covers remotes.
+                () -> openSetting("android.settings.CONTROLLERS_SETTINGS", Settings.ACTION_BLUETOOTH_SETTINGS)),
+                R.drawable.ic_q_remote));
         q.add(iconTile(textTile("q:apps", "Manage apps", "Storage, uninstall", 0xFF4A3A1F,
                 () -> openSetting(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)), R.drawable.ic_q_apps));
         q.add(iconTile(textTile("q:settings", "Settings", "All Fire TV settings", 0xFF2A2F3A,
@@ -659,12 +700,21 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         launch(a.launchIntent());
     }
 
-    private void openSetting(String action) {
-        try {
-            startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (ActivityNotFoundException | SecurityException e) {
-            launch(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+    /**
+     * Opens the first settings page that exists and that Lumen may open, else
+     * the main Settings page. (Fire OS reserves some, such as Display & Sounds,
+     * for Amazon's own apps, and lacks others, such as Bluetooth.)
+     */
+    private void openSetting(String... actions) {
+        for (String action : actions) {
+            try {
+                startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.i(TAG, action + " unavailable: " + e.getClass().getSimpleName());
+            }
         }
+        launch(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
     }
 
     private void showAppMenu(AppEntry a, String prefix) {

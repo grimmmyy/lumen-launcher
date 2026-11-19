@@ -9,7 +9,9 @@
 .NOTES
   -Serial is required so the benchmark never runs on a device by accident.
   It force-stops Lumen and sends D-pad key presses, so don't run it while
-  someone is watching that TV.
+  someone is watching that TV. Android turns off an app's accessibility
+  service when the app is force-stopped, so the Home-button setting is saved
+  first and put back at the end.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Serial,
@@ -24,6 +26,9 @@ $activity = "$Package/.MainActivity"
 
 function Invoke-Device([string]$cmd) { adb -s $Serial shell $cmd }
 
+# `am start -W` waits forever while the display is off, so wake the device before each launch.
+function Wake { Invoke-Device 'input keyevent KEYCODE_WAKEUP' | Out-Null }
+
 function Get-Median([double[]]$values) {
     $s = $values | Sort-Object
     if ($s.Count -eq 0) { return 0 }
@@ -31,10 +36,11 @@ function Get-Median([double[]]$values) {
     return ($s[$s.Count / 2 - 1] + $s[$s.Count / 2]) / 2
 }
 
-function Get-StartTime([string[]]$output) {
+function Get-StartTime([string[]]$output, [switch]$Warm) {
     $text = $output -join "`n"
     # For a HOT launch (task brought to front), TotalTime repeats a stale value; WaitTime is real.
-    $field = if ($text -match 'LaunchState:\s*HOT') { 'WaitTime' } else { 'TotalTime' }
+    # Fire OS labels hot returns "COLD", so warm starts always use WaitTime.
+    $field = if ($Warm -or $text -match 'LaunchState:\s*HOT') { 'WaitTime' } else { 'TotalTime' }
     $m = [regex]::Match($text, "${field}:\s*(\d+)")
     if ($m.Success) { return [int]$m.Groups[1].Value }
     return $null
@@ -65,8 +71,19 @@ if ($Compile) {
     Invoke-Device "cmd package compile -m speed-profile -f $Package" | Out-Null
 }
 
+# Force-stopping Lumen removes its Home-button service from the enabled list; restore it after.
+$a11y = (Invoke-Device 'settings get secure enabled_accessibility_services' | Out-String).Trim()
+$a11yOn = (Invoke-Device 'settings get secure accessibility_enabled' | Out-String).Trim()
+function Restore-HomeButton {
+    if ($a11y -and $a11y -ne 'null') {
+        Invoke-Device "settings put secure enabled_accessibility_services $a11y" | Out-Null
+        Invoke-Device "settings put secure accessibility_enabled $a11yOn" | Out-Null
+    }
+}
+
+try {
 # Warm-up: first launch renders and caches artwork; not counted.
-Invoke-Device "am start -W -n $activity" | Out-Null
+Wake; Invoke-Device "am start -W -n $activity" | Out-Null
 Start-Sleep 4
 
 # Cold start: process killed, caches on disk (what you get after a reboot or OOM kill).
@@ -74,23 +91,28 @@ $cold = @()
 for ($i = 0; $i -lt $Runs; $i++) {
     Invoke-Device "am force-stop $Package" | Out-Null
     Start-Sleep -Milliseconds 800
-    $t = Get-StartTime (Invoke-Device "am start -W -n $activity")
+    $t = Get-StartTime $(Wake; Invoke-Device "am start -W -n $activity")
     if ($t) { $cold += $t }
     Start-Sleep 2
 }
 
 # Warm start: process alive, returning from another app (pressing Home).
+# Put the Home-button service back first: while it is bound, Android keeps Lumen at
+# foreground priority when hidden. Without it (as after the force-stops above) a hidden
+# Lumen is throttled like any background app and returns ~130 ms slower on a Fire TV.
+Restore-HomeButton
+Start-Sleep 2
 $warm = @()
 for ($i = 0; $i -lt $Runs; $i++) {
-    Invoke-Device 'am start -W -a android.settings.SETTINGS' | Out-Null
+    Wake; Invoke-Device 'am start -W -a android.settings.SETTINGS' | Out-Null
     Start-Sleep 1
-    $t = Get-StartTime (Invoke-Device "am start -W -n $activity")
+    $t = Get-StartTime $(Wake; Invoke-Device "am start -W -n $activity") -Warm
     if ($t) { $warm += $t }
     Start-Sleep 1
 }
 
 # Scrolling: paced presses (normal use), then a burst (a held D-pad key).
-Invoke-Device "am start -W -n $activity" | Out-Null
+Wake; Invoke-Device "am start -W -n $activity" | Out-Null
 Start-Sleep 3
 Invoke-Device "dumpsys gfxinfo $Package reset" | Out-Null
 Invoke-Device 'for i in 1 2 3 4 5 6; do input keyevent 22; sleep 0.35; done; for i in 1 2 3 4 5 6; do input keyevent 21; sleep 0.35; done' | Out-Null
@@ -107,12 +129,23 @@ Invoke-Device 'input keyevent 22 22 22 22 22 22 22 22 21 21 21 21 21 21 21 21 20
 Start-Sleep 2
 $burst = Get-Frames 'Held-key burst'
 
-$mem = (Invoke-Device "dumpsys meminfo $Package") -join "`n"
-$pss = [regex]::Match($mem, 'TOTAL PSS:\s*(\d+)')
-$pssMb = if ($pss.Success) { [math]::Round([int]$pss.Groups[1].Value / 1024, 1) } else { 'n/a' }
+function Get-PssMb {
+    $mem = (Invoke-Device "dumpsys meminfo $Package") -join "`n"
+    $pss = [regex]::Match($mem, 'TOTAL PSS:\s*(\d+)')
+    if ($pss.Success) { [math]::Round([int]$pss.Groups[1].Value / 1024, 1) } else { 'n/a' }
+}
+$pssMb = Get-PssMb
+# What Lumen holds while you watch something else: another app in front for a few seconds.
+Wake; Invoke-Device 'am start -W -a android.settings.SETTINGS' | Out-Null
+Start-Sleep 6
+$bgMb = Get-PssMb
+Wake; Invoke-Device "am start -W -n $activity" | Out-Null
 
 Write-Host ''
 Write-Host ("Cold start   median {0} ms   (runs: {1})" -f (Get-Median $cold), ($cold -join ', '))
 Write-Host ("Warm start   median {0} ms   (runs: {1})" -f (Get-Median $warm), ($warm -join ', '))
-Write-Host ("Memory       {0} MB PSS" -f $pssMb)
+Write-Host ("Memory       {0} MB PSS on screen, {1} MB while another app is in front" -f $pssMb, $bgMb)
 @($across, $down, $burst) | Format-Table -AutoSize | Out-String | Write-Host
+} finally {
+    Restore-HomeButton
+}
