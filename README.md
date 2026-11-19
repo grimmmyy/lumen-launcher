@@ -13,6 +13,9 @@ them, and stays smooth on cheap hardware.
 - **Continue Watching** on devices that allow it (see below).
 - **Backdrop that follows focus**: a soft blur of the focused app, or your own wallpapers.
 - **Your layout, kept**: turn the Recent, Apps and Quick rows on or off; nothing autoplays.
+- **Larger tiles and text**: an option for viewing from further away or with low vision.
+- **Always clear where you are**: the focused tile lifts with a soft shadow and a ring drawn
+  outside it (visible even on white artwork), and the title of the row you're in brightens.
 - **Focus memory**: each row returns to the tile you left it on; Back and Home return to the top.
 - **No ads, no sponsored rows, no account, no network calls** (except poster images for Continue Watching).
 
@@ -41,8 +44,9 @@ How:
 - **One full-screen layer.** The backdrop is composited off the main thread with its
   darkening scrim baked in, so the GPU draws one full-screen image per frame instead of an
   image plus stacked gradients. The window background is dropped once it is covered.
-- **No shadows.** Focus is a 1.1× zoom (a GPU property, no redraw) and a white outline.
-  Animated elevation shadows are among the most expensive things a TV GPU can draw.
+- **No real-time shadows.** Focus is a 1.1× zoom (a GPU property, no redraw), a ring, and a
+  shadow that is a pre-blurred alpha mask made once per tile size and drawn only for the
+  focused tile. Animated elevation shadows are among the most expensive things a TV GPU can draw.
 - **One virtualized list.** The whole page is a single RecyclerView; rows share a pool of
   tile views and only what's on screen (plus half a screen of margin) is bound.
 - **Predictable scrolling.** The focused row always settles on the same line, rows only
@@ -112,7 +116,7 @@ adb shell pm disable-user --user 0 com.amazon.tv.forcedotaupdater.v2
 | Open an app | Select its tile |
 | Add, move, remove or hide an app | Long-press its tile, or press **Menu** (☰) |
 | Back to the top | **Back** or **Home** |
-| Choose which rows to show | Quick → **Lumen** → Layout |
+| Choose which rows to show, or larger tiles | Quick → **Lumen** → Layout |
 | Settings | Quick → **Lumen** |
 
 ### Wallpapers

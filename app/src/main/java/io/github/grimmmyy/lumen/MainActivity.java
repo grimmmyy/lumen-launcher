@@ -46,7 +46,6 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private static final String FIRE_LAUNCHER = "com.amazon.tv.launcher";
     private static final int REQ_EPG = 7;
     private static final int REQ_STORAGE = 8;
-    private static final int SPANS = 5;
     private static final float KEYLINE = 0.36f;
     private static final int MAX_RECENT_TILES = 6;
 
@@ -65,6 +64,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private HomeLayoutManager layout;
     private HomeAdapter adapter;
 
+    private int spanCount;
     private float radius;
     private int gap;
     private int side;
@@ -114,14 +114,18 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         images = new ImageLoader(this, io, main);
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        radius = dp(10);
-        gap = dp(16);
+        // "Larger tiles": fewer, bigger targets and bigger text, for viewing from
+        // further away or with low vision. Tile text scales with tile size.
+        boolean large = prefs.largeTiles();
+        spanCount = large ? 4 : 5;
+        radius = dp(large ? 12 : 10);
+        gap = dp(large ? 20 : 16);
         side = dp(48);
-        shelfW = dp(224);
+        shelfW = dp(large ? 272 : 224);
         shelfH = Math.round(shelfW * 9f / 16f);
-        smallW = dp(168);
+        smallW = dp(large ? 204 : 168);
         smallH = Math.round(smallW * 9f / 16f);
-        gridW = GridSpacing.tileWidth(dm.widthPixels, side, gap, SPANS);
+        gridW = GridSpacing.tileWidth(dm.widthPixels, side, gap, spanCount);
         gridH = Math.round(gridW * 9f / 16f);
 
         art = new ArtCache(this, io, main, radius);
@@ -131,8 +135,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                 () -> getWindow().setBackgroundDrawable(null));
 
         home = findViewById(R.id.home);
-        adapter = new HomeAdapter(this, radius, gap, side, side, SPANS);
-        layout = new HomeLayoutManager(this, SPANS, KEYLINE, pos -> adapter.snapsToTop(pos));
+        adapter = new HomeAdapter(this, radius, gap, side, side, spanCount);
+        layout = new HomeLayoutManager(this, spanCount, KEYLINE, pos -> adapter.snapsToTop(pos));
         GridLayoutManager.SpanSizeLookup spans = new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
@@ -347,6 +351,15 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
             items.add(HomeAdapter.Item.row("quick", quickTiles(), smallW, smallH));
         }
 
+        for (HomeAdapter.Item it : items) {
+            if (it.type == HomeAdapter.ROW) {
+                String section = it.id.substring("row:".length());
+                for (Tile t : it.tiles) t.section = section;
+            } else if (it.type == HomeAdapter.TILE) {
+                it.tile.section = "apps";
+            }
+        }
+
         adapter.submit(items);
         home.post(() -> {
             restoreFocus(focusKey);
@@ -499,27 +512,34 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     }
 
     private Tile hintTile() {
-        return textTile("shelf:hint", "Add apps here", "Long-press an app, or press ☰", 0xFF1E2A40,
-                () -> toast("Long-press an app (or press Menu) and choose Add to Top Shelf"));
+        return iconTile(textTile("shelf:hint", "Add apps here", "Long-press any app, or press ☰", 0xFF1E2A40,
+                () -> toast("Long-press an app (or press Menu) and choose Add to Top Shelf")), R.drawable.ic_q_add);
     }
 
     private Tile lumenSettingsTile() {
-        return textTile("shelf:settings", "Lumen", "Settings", 0xFF2A2F3A, this::showLumenSettings);
+        return iconTile(textTile("shelf:settings", "Lumen", "Settings", 0xFF2A2F3A, this::showLumenSettings),
+                R.drawable.ic_q_lumen);
+    }
+
+    private Tile iconTile(Tile t, int iconRes) {
+        t.icon = getDrawable(iconRes);
+        return t;
     }
 
     private List<Tile> quickTiles() {
         List<Tile> q = new ArrayList<>();
-        q.add(textTile("q:wifi", "Wi-Fi", "Network", 0xFF1F3A5C,
-                () -> openSetting(Settings.ACTION_WIFI_SETTINGS)));
-        q.add(textTile("q:display", "Display & Sound", "Picture, audio", 0xFF33284F,
-                () -> openSetting(Settings.ACTION_DISPLAY_SETTINGS)));
-        q.add(textTile("q:remotes", "Remotes", "Bluetooth devices", 0xFF1F4A47,
-                () -> openSetting(Settings.ACTION_BLUETOOTH_SETTINGS)));
-        q.add(textTile("q:apps", "Manage apps", "Storage, uninstall", 0xFF4A3A1F,
-                () -> openSetting(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)));
-        q.add(textTile("q:settings", "Settings", "All Fire TV settings", 0xFF2A2F3A,
-                () -> openSetting(Settings.ACTION_SETTINGS)));
-        q.add(textTile("q:lumen", "Lumen", "Layout, Home button", 0xFF3A2430, this::showLumenSettings));
+        q.add(iconTile(textTile("q:wifi", "Wi-Fi", "Network", 0xFF1F3A5C,
+                () -> openSetting(Settings.ACTION_WIFI_SETTINGS)), R.drawable.ic_q_wifi));
+        q.add(iconTile(textTile("q:display", "Display & Sound", "Picture, audio", 0xFF33284F,
+                () -> openSetting(Settings.ACTION_DISPLAY_SETTINGS)), R.drawable.ic_q_display));
+        q.add(iconTile(textTile("q:remotes", "Remotes", "Bluetooth devices", 0xFF1F4A47,
+                () -> openSetting(Settings.ACTION_BLUETOOTH_SETTINGS)), R.drawable.ic_q_remote));
+        q.add(iconTile(textTile("q:apps", "Manage apps", "Storage, uninstall", 0xFF4A3A1F,
+                () -> openSetting(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)), R.drawable.ic_q_apps));
+        q.add(iconTile(textTile("q:settings", "Settings", "All Fire TV settings", 0xFF2A2F3A,
+                () -> openSetting(Settings.ACTION_SETTINGS)), R.drawable.ic_q_settings));
+        q.add(iconTile(textTile("q:lumen", "Lumen", "Layout, Home button", 0xFF3A2430, this::showLumenSettings),
+                R.drawable.ic_q_lumen));
         return q;
     }
 
@@ -563,6 +583,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
             heroTitleView.setText(heroTitle);
             heroSubtitleView.setText(heroSubtitle);
         }
+        adapter.setFocusedSection(home, t.section);
         backdrop.request(t.backdropPkg, t.imageUri, t.color, view.backdropSeed());
     }
 
@@ -678,13 +699,22 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     private void showLayoutOptions() {
         final String[] keys = {Prefs.ROW_RECENT, Prefs.ROW_APPS, Prefs.ROW_QUICK};
-        String[] labels = {"Recent row", "Apps grid", "Quick controls row"};
-        boolean[] checked = new boolean[keys.length];
+        String[] labels = {"Recent row", "Apps grid", "Quick controls row", "Larger tiles and text"};
+        boolean[] checked = new boolean[labels.length];
         for (int i = 0; i < keys.length; i++) checked[i] = prefs.rowEnabled(keys[i]);
-        dialog().setTitle("Show on the home screen")
-                .setMultiChoiceItems(labels, checked, (d, which, on) -> prefs.setRowEnabled(keys[which], on))
+        final boolean wasLarge = prefs.largeTiles();
+        checked[3] = wasLarge;
+        dialog().setTitle("Home screen layout")
+                .setMultiChoiceItems(labels, checked, (d, which, on) -> {
+                    if (which < keys.length) prefs.setRowEnabled(keys[which], on);
+                    else prefs.setLargeTiles(on);
+                })
                 .setPositiveButton("Done", null)
-                .setOnDismissListener(d -> rebuild())
+                .setOnDismissListener(d -> {
+                    // Tile sizes are fixed at creation, so a size change rebuilds the screen.
+                    if (prefs.largeTiles() != wasLarge) recreate();
+                    else rebuild();
+                })
                 .show();
     }
 

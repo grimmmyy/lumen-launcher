@@ -119,6 +119,29 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return true;
     }
 
+    private String focusedSection;
+
+    private float titleAlpha(String section) {
+        return focusedSection == null || focusedSection.equals(section) ? 1f : 0.5f;
+    }
+
+    /**
+     * Brightens the title of the row that has focus and dims the others, so
+     * it's always clear where you are. Only alpha changes (no layout), and a
+     * plain TextView fades without an offscreen layer.
+     */
+    void setFocusedSection(RecyclerView list, String section) {
+        if (section == null || section.equals(focusedSection)) return;
+        focusedSection = section;
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View v = list.getChildAt(i);
+            Object tag = v.getTag(R.id.section_tag);
+            if (tag instanceof String) {
+                v.animate().alpha(titleAlpha((String) tag)).setDuration(160).start();
+            }
+        }
+    }
+
     @Override
     public int getItemCount() {
         return items.size();
@@ -163,7 +186,12 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 host.bindHeader(holder.itemView);
                 break;
             case TITLE:
-                ((TextView) holder.itemView).setText(item.text);
+                TextView title = (TextView) holder.itemView;
+                String section = item.id.substring("title:".length());
+                title.setText(item.text);
+                title.setTag(R.id.section_tag, section);
+                title.animate().cancel();
+                title.setAlpha(titleAlpha(section));
                 break;
             case ROW:
                 ((RowHolder) holder).bind(item);

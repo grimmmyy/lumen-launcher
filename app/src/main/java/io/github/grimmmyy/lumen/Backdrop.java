@@ -136,7 +136,7 @@ final class Backdrop {
             photo.recycle();
             return finish(out);
         }
-        if (seed != null && !seed.isRecycled()) return finish(blur(seed));
+        if (seed != null && !seed.isRecycled()) return finish(blur(seed, color));
         return finish(gradient(color));
     }
 
@@ -158,7 +158,7 @@ final class Backdrop {
      * A cheap, smooth blur: shrink to a few dozen pixels, then grow back in two
      * bilinear steps. Slightly darkened and more saturated, like tvOS.
      */
-    private static Bitmap blur(Bitmap seed) {
+    private static Bitmap blur(Bitmap seed, int color) {
         // Two shrink steps average away logos and text; only the colors survive.
         Bitmap small = Bitmap.createScaledBitmap(seed, 32, 18, true);
         Bitmap tiny = Bitmap.createScaledBitmap(small, 8, 5, true);
@@ -170,7 +170,13 @@ final class Backdrop {
         ColorMatrix dim = new ColorMatrix();
         dim.setScale(0.42f, 0.42f, 0.42f, 1f); // white banners must still read as a dark room
         m.postConcat(dim);
-        Bitmap out = cover(mid, SOFT_W, SOFT_H, new ColorMatrixColorFilter(m));
+        // Laid over a gradient of the app's own color, so a mostly-white banner
+        // gives a tinted dark room rather than flat grey.
+        Bitmap out = gradient(color);
+        Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
+        p.setColorFilter(new ColorMatrixColorFilter(m));
+        p.setAlpha(185);
+        new Canvas(out).drawBitmap(mid, null, new RectF(0, 0, SOFT_W, SOFT_H), p);
         mid.recycle();
         return out;
     }

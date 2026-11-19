@@ -89,6 +89,16 @@ final class Prefs {
     private static final String KEY_RECENTS = "recents";
     private static final int MAX_RECENTS = 12;
 
+    private static final String KEY_LARGE = "large_tiles";
+
+    boolean largeTiles() {
+        return sp.getBoolean(KEY_LARGE, false);
+    }
+
+    void setLargeTiles(boolean on) {
+        sp.edit().putBoolean(KEY_LARGE, on).apply();
+    }
+
     boolean rowEnabled(String row) {
         return sp.getBoolean(row, true);
     }
