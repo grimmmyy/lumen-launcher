@@ -43,6 +43,12 @@ To undo it:
 adb shell settings put secure enabled_accessibility_services ""
 ```
 
+**It can't trap you in a loop.** If Lumen crashes, Android stops the Home-button service until Lumen is
+opened again. On top of that, Lumen has its own guard: 2 crashes within 5 minutes, or 6 Home redirects
+within 15 seconds, switches it to safe mode, and the Home button goes to the Amazon home screen. Open Lumen
+from Your Apps; once it has stayed on screen for 5 seconds, the Home button opens Lumen again. A factory
+reset (hold **Back + Right** on the remote for 10 seconds) always restores the stock setup.
+
 Need the Amazon home screen on purpose? Lumen settings → **Open Fire TV home** pauses the redirect for one minute.
 
 **Optional:** Amazon's forced-update service has broken launcher workarounds in the past. You can switch it off

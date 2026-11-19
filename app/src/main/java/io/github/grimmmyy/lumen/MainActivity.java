@@ -77,10 +77,28 @@ public class MainActivity extends Activity implements TileAdapter.Host {
         }
     }
 
+    /** Lumen has stayed on screen long enough to count as working: reset the crash guard. */
+    private final Runnable markStable = () -> {
+        boolean wasSafe = prefs.isSafeMode();
+        // Clears crash and redirect history too. Old crashes must not count once
+        // Lumen has shown it works, even if safe mode never switched on (the
+        // watcher lives in Lumen's process, so it can miss events while we crash).
+        prefs.setSafeMode(false);
+        android.util.Log.i("Lumen", "stable: guard cleared (was safe=" + wasSafe + ")");
+        if (wasSafe) toast("Home button opens Lumen again");
+    };
+
     @Override
     protected void onResume() {
         super.onResume();
         reload(false);
+        main.postDelayed(markStable, 5_000);
+    }
+
+    @Override
+    protected void onPause() {
+        main.removeCallbacks(markStable);
+        super.onPause();
     }
 
     @Override

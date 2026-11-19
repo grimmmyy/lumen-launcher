@@ -80,6 +80,63 @@ final class Prefs {
         return System.currentTimeMillis() < sp.getLong(KEY_BYPASS_UNTIL, 0);
     }
 
+    // ---- Crash guard --------------------------------------------------------
+    // These use commit() rather than apply(): a crash kills the process before
+    // an async write lands, so the record has to be on disk before we die.
+
+    private static final String KEY_CRASHES = "crash_times";
+    private static final String KEY_REDIRECTS = "redirect_times";
+    private static final String KEY_SAFE_MODE = "safe_mode";
+    private static final int KEEP = 6;
+
+    void recordCrash() {
+        sp.edit().putString(KEY_CRASHES, append(sp.getString(KEY_CRASHES, ""))).commit();
+    }
+
+    int crashesWithin(long windowMs) {
+        return countWithin(sp.getString(KEY_CRASHES, ""), windowMs);
+    }
+
+    void recordRedirect() {
+        sp.edit().putString(KEY_REDIRECTS, append(sp.getString(KEY_REDIRECTS, ""))).commit();
+    }
+
+    int redirectsWithin(long windowMs) {
+        return countWithin(sp.getString(KEY_REDIRECTS, ""), windowMs);
+    }
+
+    boolean isSafeMode() {
+        return sp.getBoolean(KEY_SAFE_MODE, false);
+    }
+
+    void setSafeMode(boolean on) {
+        SharedPreferences.Editor e = sp.edit().putBoolean(KEY_SAFE_MODE, on);
+        if (!on) e.remove(KEY_CRASHES).remove(KEY_REDIRECTS);
+        e.commit();
+    }
+
+    private static String append(String raw) {
+        List<String> parts = new ArrayList<>();
+        if (!TextUtils.isEmpty(raw)) parts.addAll(Arrays.asList(raw.split(",")));
+        parts.add(String.valueOf(System.currentTimeMillis()));
+        while (parts.size() > KEEP) parts.remove(0);
+        return TextUtils.join(",", parts);
+    }
+
+    private static int countWithin(String raw, long windowMs) {
+        if (TextUtils.isEmpty(raw)) return 0;
+        long cutoff = System.currentTimeMillis() - windowMs;
+        int n = 0;
+        for (String s : raw.split(",")) {
+            try {
+                if (Long.parseLong(s) >= cutoff) n++;
+            } catch (NumberFormatException ignored) {
+                // skip a corrupt entry
+            }
+        }
+        return n;
+    }
+
     boolean askedForEpg() {
         return sp.getBoolean(KEY_ASKED_EPG, false);
     }
