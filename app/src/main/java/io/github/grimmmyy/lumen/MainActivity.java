@@ -23,6 +23,7 @@ import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -84,10 +85,14 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private boolean firstFocusDone;
     private boolean reportedDrawn;
 
+    private View headerView;
     private TextView heroTitleView;
     private TextView heroSubtitleView;
+    private TextView heroHintView;
+    private TextView greetingView;
     private String heroTitle = "";
     private String heroSubtitle = "";
+    private String heroHint = "";
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override
@@ -136,6 +141,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
         home = findViewById(R.id.home);
         adapter = new HomeAdapter(this, radius, gap, side, side, spanCount);
+        if (large) adapter.setTitleScale(1.2f);
         layout = new HomeLayoutManager(this, spanCount, KEYLINE, pos -> adapter.snapsToTop(pos));
         GridLayoutManager.SpanSizeLookup spans = new GridLayoutManager.SpanSizeLookup() {
             @Override
@@ -181,6 +187,10 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     protected void onResume() {
         super.onResume();
         rebuild(); // cheap no-op unless recents or settings changed while away
+        if (greetingView != null) greetingView.setText(greeting());
+        // "Opened just now" and friends are time-based: refresh them for the tile in focus.
+        View f = getCurrentFocus();
+        if (f instanceof TileView) onTileFocused((TileView) f);
         refresh();
         main.postDelayed(markStable, 5_000);
     }
@@ -547,10 +557,63 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     @Override
     public void bindHeader(View header) {
-        heroTitleView = header.findViewById(R.id.heroTitle);
-        heroSubtitleView = header.findViewById(R.id.heroSubtitle);
+        if (header != headerView) {
+            headerView = header;
+            heroTitleView = header.findViewById(R.id.heroTitle);
+            heroSubtitleView = header.findViewById(R.id.heroMeta);
+            heroHintView = header.findViewById(R.id.heroHint);
+            greetingView = header.findViewById(R.id.greeting);
+            if (prefs.largeTiles()) scaleHeader(header, 1.2f);
+        }
         heroTitleView.setText(heroTitle);
         heroSubtitleView.setText(heroSubtitle);
+        heroHintView.setText(heroHint);
+        greetingView.setText(greeting());
+    }
+
+    /** "Larger tiles and text": grow the header's text and its fixed line heights together. */
+    private static void scaleHeader(View header, float k) {
+        ViewGroup.LayoutParams root = header.getLayoutParams();
+        if (root != null && root.height > 0) {
+            root.height = Math.round(root.height * k);
+            header.setLayoutParams(root);
+        }
+        ViewGroup g = (ViewGroup) header;
+        for (int i = 0; i < g.getChildCount(); i++) {
+            View c = g.getChildAt(i);
+            if (c instanceof TextView) {
+                TextView tv = (TextView) c;
+                tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, tv.getTextSize() * k);
+                ViewGroup.LayoutParams lp = tv.getLayoutParams();
+                if (lp.height > 0) lp.height = Math.round(lp.height * k);
+                if (lp.width > 0) lp.width = Math.round(lp.width * k);
+                tv.setLayoutParams(lp);
+            }
+        }
+    }
+
+    private static String greeting() {
+        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        if (h >= 5 && h < 12) return "Good morning";
+        if (h >= 12 && h < 17) return "Good afternoon";
+        if (h >= 17 && h < 22) return "Good evening";
+        return "Good night";
+    }
+
+    /** "Opened 2 hours ago" for apps Lumen has launched; the tile's caption otherwise. */
+    private String metaFor(Tile t) {
+        if (t.app != null) {
+            long when = prefs.lastLaunch(t.app.pkg);
+            if (when > 0) {
+                long now = System.currentTimeMillis();
+                if (now - when < 60_000) return "Opened just now";
+                return "Opened " + android.text.format.DateUtils.getRelativeTimeSpanString(
+                        when, now, android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+                        .toLowerCase(java.util.Locale.getDefault());
+            }
+            return "";
+        }
+        return t.subtitle != null ? t.subtitle : "";
     }
 
     @Override
@@ -578,10 +641,12 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         Tile t = view.tile();
         if (t == null) return;
         heroTitle = t.title;
-        heroSubtitle = t.subtitle != null ? t.subtitle : "";
+        heroSubtitle = metaFor(t);
+        heroHint = t.onLongClick != null ? "Select to open   ·   ☰  Options" : "Select to open";
         if (heroTitleView != null) {
             heroTitleView.setText(heroTitle);
             heroSubtitleView.setText(heroSubtitle);
+            heroHintView.setText(heroHint);
         }
         adapter.setFocusedSection(home, t.section);
         backdrop.request(t.backdropPkg, t.imageUri, t.color, view.backdropSeed());

@@ -1,37 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Text views use fixed heights on purpose: changing the text of a fixed-size
-  TextView only redraws it, while a wrap_content one forces a layout pass of
-  the whole list on every focus move.
+  The info band at the top: greeting and clock, then the focused tile's name,
+  when it was last opened, and what the remote buttons do.
+
+  Every TextView that changes on focus has a fixed height: changing the text of
+  a fixed-size TextView only redraws it, while a wrap_content one would force a
+  layout pass of the whole list on every key press. Sizes are scaled in code
+  for the "Larger tiles and text" option.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="168dp"
-    android:orientation="horizontal" android:baselineAligned="false"
-    android:paddingStart="48dp" android:paddingEnd="48dp" android:paddingTop="30dp">
+    android:paddingStart="48dp" android:paddingEnd="48dp" android:paddingTop="26dp">
 
-    <LinearLayout android:layout_width="0dp" android:layout_weight="1"
-        android:layout_height="wrap_content" android:orientation="vertical">
-        <TextView android:id="@+id/heroTitle"
-            android:layout_width="match_parent" android:layout_height="44dp"
-            android:textColor="#FFFFFFFF" android:textSize="30sp"
-            android:fontFamily="sans-serif-medium"
-            android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"
-            android:gravity="center_vertical" />
-        <TextView android:id="@+id/heroSubtitle"
-            android:layout_width="match_parent" android:layout_height="24dp"
-            android:textColor="#B3FFFFFF" android:textSize="15sp"
-            android:maxLines="1" android:ellipsize="end" android:gravity="center_vertical" />
-    </LinearLayout>
+    <TextView android:id="@+id/greeting"
+        android:layout_width="wrap_content" android:layout_height="24dp"
+        android:layout_alignParentStart="true" android:layout_alignParentTop="true"
+        android:layout_marginTop="6dp"
+        android:textColor="#B3FFFFFF" android:textSize="16sp"
+        android:gravity="center_vertical" android:maxLines="1" />
 
-    <LinearLayout android:id="@+id/clockBlock"
-        android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:orientation="vertical" android:gravity="end">
-        <TextClock android:layout_width="wrap_content" android:layout_height="44dp"
-            android:format12Hour="h:mm" android:format24Hour="HH:mm"
-            android:textColor="#FFFFFFFF" android:textSize="30sp" android:gravity="center_vertical"
-            android:includeFontPadding="false" />
-        <TextClock android:layout_width="wrap_content" android:layout_height="24dp"
-            android:format12Hour="EEEE, MMM d" android:format24Hour="EEEE, MMM d"
-            android:textColor="#B3FFFFFF" android:textSize="15sp" android:gravity="center_vertical" />
-    </LinearLayout>
-</LinearLayout>
+    <TextClock android:id="@+id/clock"
+        android:layout_width="wrap_content" android:layout_height="36dp"
+        android:layout_alignParentEnd="true" android:layout_alignParentTop="true"
+        android:format12Hour="h:mm" android:format24Hour="HH:mm"
+        android:textColor="#FFFFFFFF" android:textSize="28sp"
+        android:fontFamily="sans-serif-light"
+        android:gravity="center_vertical|end" android:includeFontPadding="false" />
+
+    <TextClock android:id="@+id/date"
+        android:layout_width="wrap_content" android:layout_height="20dp"
+        android:layout_alignParentEnd="true" android:layout_below="@id/clock"
+        android:format12Hour="EEEE, MMM d" android:format24Hour="EEEE, MMM d"
+        android:textColor="#99FFFFFF" android:textSize="13sp"
+        android:gravity="center_vertical|end" />
+
+    <TextView android:id="@+id/heroTitle"
+        android:layout_width="match_parent" android:layout_height="54dp"
+        android:layout_below="@id/date" android:layout_marginTop="2dp"
+        android:textColor="#FFFFFFFF" android:textSize="40sp"
+        android:fontFamily="sans-serif-medium" android:letterSpacing="-0.01"
+        android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"
+        android:gravity="center_vertical"
+        android:shadowColor="#66000000" android:shadowRadius="12" />
+
+    <TextView android:id="@+id/heroMeta"
+        android:layout_width="match_parent" android:layout_height="24dp"
+        android:layout_below="@id/heroTitle" android:layout_alignParentStart="true"
+        android:layout_toStartOf="@id/heroHint" android:layout_marginEnd="24dp"
+        android:textColor="#B3FFFFFF" android:textSize="16sp"
+        android:maxLines="1" android:ellipsize="end" android:gravity="center_vertical" />
+
+    <TextView android:id="@+id/heroHint"
+        android:layout_width="340dp" android:layout_height="24dp"
+        android:layout_below="@id/heroTitle" android:layout_alignParentEnd="true"
+        android:textColor="#80FFFFFF" android:textSize="14sp"
+        android:maxLines="1" android:gravity="center_vertical|end" />
+</RelativeLayout>

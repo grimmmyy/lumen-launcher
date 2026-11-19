@@ -120,6 +120,11 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private String focusedSection;
+    private float titleScale = 1f;
+
+    void setTitleScale(float k) {
+        titleScale = k;
+    }
 
     private float titleAlpha(String section) {
         return focusedSection == null || focusedSection.equals(section) ? 1f : 0.5f;
@@ -165,7 +170,15 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case HEADER:
                 return new Plain(inf.inflate(R.layout.home_header, parent, false));
             case TITLE:
-                return new Plain(inf.inflate(R.layout.home_title, parent, false));
+                TextView title = (TextView) inf.inflate(R.layout.home_title, parent, false);
+                if (titleScale != 1f) {
+                    // Scaled once, when the view is created, so it never compounds.
+                    title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, title.getTextSize() * titleScale);
+                    ViewGroup.LayoutParams lp = title.getLayoutParams();
+                    lp.height = Math.round(lp.height * titleScale);
+                    title.setLayoutParams(lp);
+                }
+                return new Plain(title);
             case ROW:
                 return new RowHolder(parent);
             default:

@@ -11,6 +11,7 @@ them, and stays smooth on cheap hardware.
 - **Apps**: everything else in a grid. Hide anything you don't want to see.
 - **Quick**: one press to Wi-Fi, display & sound, remotes, app management and settings.
 - **Continue Watching** on devices that allow it (see below).
+- **Info band**: a greeting and clock, the focused app's name, when you last opened it, and what the remote buttons do.
 - **Backdrop that follows focus**: a soft blur of the focused app, or your own wallpapers.
 - **Your layout, kept**: turn the Recent, Apps and Quick rows on or off; nothing autoplays.
 - **Larger tiles and text**: an option for viewing from further away or with low vision.

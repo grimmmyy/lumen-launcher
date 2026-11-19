@@ -120,7 +120,14 @@ final class Prefs {
         r.remove(pkg);
         r.add(0, pkg);
         while (r.size() > MAX_RECENTS) r.remove(r.size() - 1);
-        sp.edit().putString(KEY_RECENTS, TextUtils.join(",", r)).apply();
+        sp.edit().putString(KEY_RECENTS, TextUtils.join(",", r))
+                .putLong("launched:" + pkg, System.currentTimeMillis())
+                .apply();
+    }
+
+    /** When Lumen last opened this app, or 0 if never. */
+    long lastLaunch(String pkg) {
+        return sp.getLong("launched:" + pkg, 0);
     }
 
     void forgetRecent(String pkg) {
