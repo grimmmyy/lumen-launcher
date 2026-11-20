@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">Lumen</string>
     <string name="home_watcher_label">Lumen Home button</string>
+    <string name="now_playing_label">Lumen Now Playing</string>
     <string name="home_watcher_desc">Opens Lumen whenever the Fire TV home screen appears, so the Home button takes you to Lumen.</string>
 </resources>

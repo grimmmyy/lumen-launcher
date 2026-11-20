@@ -6,6 +6,9 @@ Most TV home screens put recommendations, ads and extra services between you and
 what you wanted to watch. Lumen puts your apps first, keeps them where you put
 them, and stays smooth on cheap hardware.
 
+- **Now Playing**: when any app is playing music or a show, a card at the top shows its artwork, title and app,
+  tints the background from the artwork, and opens or controls it (Select opens it, Play/Pause on the remote,
+  Menu for next and previous). Reads only the player, never your notifications.
 - **Top Shelf**: your apps, large, in the order you choose. Positions never move on their own.
 - **Recent**: apps you opened lately that aren't on the Top Shelf (tracked by Lumen; no usage permission).
 - **Apps**: everything else in a grid. Hide anything you don't want to see.
@@ -102,7 +105,7 @@ How:
 ```
 
 It installs Lumen, makes the Home button open it (keeping any other accessibility services you use),
-lets it read your wallpapers, then opens Lumen and compiles it ahead of time. Choose **Allow** if the
+turns on Now Playing, lets it read your wallpapers, then opens Lumen and compiles it ahead of time. Choose **Allow** if the
 TV asks about the computer. It's safe to run again, for example after an update.
 
 On the TV, **Lumen → Setup and health** (Quick row → Lumen) shows the status of each step and the
@@ -119,6 +122,7 @@ adb connect <fire-tv-ip>:5555
 adb install -r lumen.apk
 adb shell settings put secure enabled_accessibility_services io.github.grimmmyy.lumen/io.github.grimmmyy.lumen.HomeWatcherService
 adb shell settings put secure accessibility_enabled 1
+adb shell cmd notification allow_listener io.github.grimmmyy.lumen/io.github.grimmmyy.lumen.NowPlayingService
 # open Lumen, wait about 10 seconds, then:
 adb shell cmd package compile -m speed-profile -f io.github.grimmmyy.lumen
 ```
@@ -215,6 +219,7 @@ and Google TV devices where apps publish to Watch Next.
 | `READ_EPG_DATA` | Read Continue Watching (not grantable on Fire OS) |
 | `READ_EXTERNAL_STORAGE` / `READ_MEDIA_IMAGES` | Optional: your wallpapers in `/sdcard/Lumen/wallpapers` |
 | Accessibility service | Optional: make the Home button open Lumen (see above) |
+| Notification access (`NowPlayingService`) | Optional: Now Playing. Android only shows apps' media players to a notification listener; Lumen never reads, keeps or shows notifications |
 
 ## Build
 

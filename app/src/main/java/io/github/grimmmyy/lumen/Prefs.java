@@ -86,6 +86,7 @@ final class Prefs {
     static final String ROW_RECENT = "row_recent";
     static final String ROW_QUICK = "row_quick";
     static final String ROW_APPS = "row_apps";
+    static final String ROW_NOW = "row_now";
     private static final String KEY_RECENTS = "recents";
     private static final int MAX_RECENTS = 12;
 

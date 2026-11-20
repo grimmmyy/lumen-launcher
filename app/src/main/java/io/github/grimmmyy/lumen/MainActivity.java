@@ -57,6 +57,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private ImageLoader images;
     private ArtCache art;
     private Backdrop backdrop;
+    private NowPlaying nowPlaying;
+    private NowPlaying.State playing;
     private RecyclerView home;
     private HomeLayoutManager layout;
     private HomeAdapter adapter;
@@ -133,6 +135,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         gridH = Math.round(gridW * 9f / 16f);
 
         art = LumenApp.art(this, radius);
+        nowPlaying = new NowPlaying(this, io);
         backdrop = new Backdrop(findViewById(R.id.backdropA), findViewById(R.id.backdropB), io, main, images,
                 new File(userDir(), "wallpapers"),
                 // Once the backdrop is opaque the window background is pure overdraw.
@@ -252,7 +255,15 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        nowPlaying.start(this::onNowPlaying);
+        playing = nowPlaying.current();
+    }
+
+    @Override
     protected void onStop() {
+        nowPlaying.stop();
         super.onStop();
         // Not left to onTrimMemory: while the Home-button service is bound, Android
         // keeps Lumen at foreground priority and never sends TRIM_MEMORY_UI_HIDDEN.
@@ -363,7 +374,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         boolean showApps = prefs.rowEnabled(Prefs.ROW_APPS);
         boolean showQuick = prefs.rowEnabled(Prefs.ROW_QUICK);
 
-        String sig = signature(favs, hidden, recents, showRecent, showApps, showQuick);
+        String sig = signature(favs, hidden, recents, showRecent, showApps, showQuick)
+                + (playing != null && prefs.rowEnabled(Prefs.ROW_NOW));
         if (sig.equals(signature)) return;
         signature = sig;
 
@@ -373,6 +385,11 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
         List<HomeAdapter.Item> items = new ArrayList<>();
         items.add(HomeAdapter.Item.header());
+
+        if (playing != null && prefs.rowEnabled(Prefs.ROW_NOW)) {
+            items.add(HomeAdapter.Item.title("now", "Now Playing"));
+            items.add(HomeAdapter.Item.now(shelfW * 2 + gap, shelfH));
+        }
 
         List<Tile> shelf = new ArrayList<>();
         for (String p : favs) shelf.add(appTile(byPkg.get(p), "fav:"));
@@ -720,6 +737,88 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         backdrop.request(t.backdropPkg, t.imageUri, t.color, view.backdropSeed());
     }
 
+    // ---- Now Playing ----------------------------------------------------------
+
+    private void onNowPlaying(NowPlaying.State s) {
+        boolean wasShown = playing != null;
+        playing = s;
+        if ((s != null) != wasShown) {
+            rebuild(); // the card appears or goes
+            return;
+        }
+        View v = home.findViewWithTag("nowplaying");
+        if (v instanceof NowPlayingCard) {
+            NowPlayingCard card = (NowPlayingCard) v;
+            card.setState(s);
+            if (card.isFocused()) onCardFocused(card);
+        }
+    }
+
+    @Override
+    public void bindNowPlaying(NowPlayingCard card) {
+        card.setState(playing);
+        card.setOnClickListener(x -> openNowPlaying());
+        card.setOnLongClickListener(x -> {
+            showNowPlayingMenu();
+            return true;
+        });
+        card.setOnFocusChangeListener((x, has) -> {
+            if (has) onCardFocused(card);
+        });
+    }
+
+    private void onCardFocused(NowPlayingCard card) {
+        NowPlaying.State s = card.state();
+        if (s == null) return;
+        heroTitle = s.title;
+        heroSubtitle = (s.playing ? "Playing on " : "Paused on ") + s.appLabel;
+        heroHint = "Select to open   ·   ⏯ Play/Pause   ·   ☰  More";
+        if (heroTitleView != null) {
+            heroTitleView.setText(heroTitle);
+            heroSubtitleView.setText(heroSubtitle);
+            heroHintView.setText(heroHint);
+        }
+        adapter.setFocusedSection(home, "now");
+        backdrop.requestArt(s.pkg + "|" + s.title, card.tint(), s.art);
+    }
+
+    private void openNowPlaying() {
+        NowPlaying.State s = playing;
+        if (s == null) return;
+        android.app.PendingIntent pi = s.controller.getSessionActivity();
+        if (pi != null) {
+            try {
+                pi.send();
+                return;
+            } catch (android.app.PendingIntent.CanceledException ignored) {
+                // fall back to the app's launcher entry
+            }
+        }
+        AppEntry a = byPkg.get(s.pkg);
+        if (a != null) launchApp(a);
+        else {
+            Intent i = getPackageManager().getLeanbackLaunchIntentForPackage(s.pkg);
+            if (i == null) i = getPackageManager().getLaunchIntentForPackage(s.pkg);
+            if (i != null) launch(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+    }
+
+    private void showNowPlayingMenu() {
+        NowPlaying.State s = playing;
+        if (s == null) return;
+        String[] items = {s.playing ? "Pause" : "Play", "Next", "Previous", "Open " + s.appLabel};
+        dialog().setTitle(s.title)
+                .setItems(items, (d, which) -> {
+                    switch (which) {
+                        case 0: nowPlaying.playPause(); break;
+                        case 1: nowPlaying.next(); break;
+                        case 2: nowPlaying.previous(); break;
+                        default: openNowPlaying(); break;
+                    }
+                })
+                .show();
+    }
+
     // ---- Actions ------------------------------------------------------------
 
     private void launchApp(AppEntry a) {
@@ -840,12 +939,12 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     }
 
     private void showLayoutOptions() {
-        final String[] keys = {Prefs.ROW_RECENT, Prefs.ROW_APPS, Prefs.ROW_QUICK};
-        String[] labels = {"Recent row", "Apps grid", "Quick controls row", "Larger tiles and text"};
+        final String[] keys = {Prefs.ROW_NOW, Prefs.ROW_RECENT, Prefs.ROW_APPS, Prefs.ROW_QUICK};
+        String[] labels = {"Now Playing card", "Recent row", "Apps grid", "Quick controls row", "Larger tiles and text"};
         boolean[] checked = new boolean[labels.length];
         for (int i = 0; i < keys.length; i++) checked[i] = prefs.rowEnabled(keys[i]);
         final boolean wasLarge = prefs.largeTiles();
-        checked[3] = wasLarge;
+        checked[keys.length] = wasLarge;
         dialog().setTitle("Home screen layout")
                 .setMultiChoiceItems(labels, checked, (d, which, on) -> {
                     if (which < keys.length) prefs.setRowEnabled(keys[which], on);

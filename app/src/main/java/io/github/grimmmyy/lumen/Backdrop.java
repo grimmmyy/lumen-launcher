@@ -93,14 +93,27 @@ final class Backdrop {
     void request(String pkg, String imageUri, int color, Bitmap seed) {
         final String key = (pkg == null ? "" : pkg) + "|" + (imageUri == null ? "" : imageUri)
                 + "|" + color + "|" + (seed != null);
+        schedule(key, () -> start(key, pkg, imageUri, color, seed, false));
+    }
+
+    /**
+     * The blurred artwork itself, ahead of any wallpaper (Now Playing).
+     * @param id identifies the artwork, e.g. the track
+     */
+    void requestArt(String id, int color, Bitmap art) {
+        final String key = "art|" + id + "|" + color + "|" + (art != null);
+        schedule(key, () -> start(key, null, null, color, art, true));
+    }
+
+    private void schedule(String key, Runnable task) {
         if (key.equals(currentKey)) return;
         currentKey = key;
         if (pending != null) main.removeCallbacks(pending);
-        pending = () -> start(key, pkg, imageUri, color, seed);
+        pending = task;
         main.postDelayed(pending, Motion.fast() ? 280 : 110);
     }
 
-    private void start(String key, String pkg, String imageUri, int color, Bitmap seed) {
+    private void start(String key, String pkg, String imageUri, int color, Bitmap seed, boolean seedFirst) {
         Bitmap hit = composed.get(key);
         if (hit != null) {
             show(hit);
@@ -109,7 +122,8 @@ final class Backdrop {
         io.execute(() -> {
             Bitmap out;
             try {
-                out = compose(pkg, imageUri, color, seed);
+                out = seedFirst && seed != null && !seed.isRecycled() ? finish(blur(seed, color))
+                        : compose(pkg, imageUri, color, seed);
             } catch (RuntimeException | OutOfMemoryError e) {
                 out = null;
             }

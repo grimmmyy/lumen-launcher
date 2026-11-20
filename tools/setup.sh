@@ -32,6 +32,9 @@ case "$CURRENT" in
 esac
 sh_ "settings put secure accessibility_enabled 1" >/dev/null
 
+step "Now Playing: let Lumen see media players (not notifications)"
+sh_ "cmd notification allow_listener $PKG/$PKG.NowPlayingService" >/dev/null
+
 step "Wallpapers: allow Lumen to read /sdcard/Lumen/wallpapers"
 sh_ "pm grant $PKG android.permission.READ_EXTERNAL_STORAGE" >/dev/null || true
 

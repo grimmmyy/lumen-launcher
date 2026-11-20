@@ -104,6 +104,17 @@ public class SetupActivity extends Activity {
                         "Fire TV hides this setting, so turn it on from a computer with ADB:",
                         "adb shell \"" + homeButtonCommand(this).replace("'", "") + "\"")));
 
+        // Now Playing
+        boolean np = NowPlaying.available(this);
+        c.add(new Check("Now Playing", np
+                ? "On. What's playing in any app shows at the top of Home, with its artwork."
+                : "Off. Shows what's playing (music, shows) at the top of Home. Lumen reads only the "
+                + "player, never your notifications.", np ? OK : ACTION, np ? null : "How",
+                np ? null : () -> showCommands("Turn on Now Playing",
+                        "Android asks for notification access to read media players; Fire TV hides that "
+                        + "setting, so turn it on from a computer with ADB:",
+                        "adb shell cmd notification allow_listener " + pkg + "/" + pkg + ".NowPlayingService")));
+
         // Ahead-of-time compile
         if (compiled == null) {
             c.add(new Check("Fast scrolling code", !compileChecked ? "Checking…"

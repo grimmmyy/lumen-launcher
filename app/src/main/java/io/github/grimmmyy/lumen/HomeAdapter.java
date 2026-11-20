@@ -24,6 +24,7 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     static final int TITLE = 1;
     static final int ROW = 2;
     static final int TILE = 3;
+    static final int NOW = 4;
 
     interface Host {
         void bindHeader(View header);
@@ -31,6 +32,8 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         void bindArt(TileView view, Tile tile, int width, int height);
 
         void onTileFocused(TileView view);
+
+        void bindNowPlaying(NowPlayingCard card);
     }
 
     static final class Item {
@@ -60,6 +63,13 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         static Item row(String id, List<Tile> tiles, int w, int h) {
             Item i = new Item(ROW, "row:" + id);
             i.tiles = tiles;
+            i.tileW = w;
+            i.tileH = h;
+            return i;
+        }
+
+        static Item now(int w, int h) {
+            Item i = new Item(NOW, "now");
             i.tileW = w;
             i.tileH = h;
             return i;
@@ -181,6 +191,13 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return new Plain(title);
             case ROW:
                 return new RowHolder(parent);
+            case NOW: {
+                android.widget.FrameLayout frame = new android.widget.FrameLayout(parent.getContext());
+                frame.setClipChildren(false);
+                frame.setClipToPadding(false);
+                frame.addView(new NowPlayingCard(parent.getContext(), radius));
+                return new Plain(frame);
+            }
             default:
                 TileView v = new TileView(parent.getContext(), radius);
                 // Spacing comes from GridSpacing, so tiles in every column are the same width.
@@ -209,6 +226,17 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case ROW:
                 ((RowHolder) holder).bind(item);
                 break;
+            case NOW: {
+                android.widget.FrameLayout frame = (android.widget.FrameLayout) holder.itemView;
+                NowPlayingCard card = (NowPlayingCard) frame.getChildAt(0);
+                int padV = Math.round(item.tileH * 0.07f);
+                frame.setPadding(rowPadStart, padV + gap / 2, rowPadEnd, padV + gap / 2);
+                frame.setLayoutParams(new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        item.tileH + gap + 2 * padV));
+                card.setLayoutParams(new android.widget.FrameLayout.LayoutParams(item.tileW, item.tileH));
+                host.bindNowPlaying(card);
+                break;
+            }
             default:
                 TileView v = (TileView) holder.itemView;
                 v.bind(item.tile);

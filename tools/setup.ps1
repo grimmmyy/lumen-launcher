@@ -10,7 +10,7 @@
   Needs ADB (Android platform-tools) and, on the TV, Settings > My Fire TV >
   Developer options > ADB debugging. The first time, the TV asks whether to
   allow this computer: choose Allow.
-  Steps: install (with -Apk), Home button, wallpaper access, then open Lumen
+  Steps: install (with -Apk), Home button, Now Playing, wallpaper access, then open Lumen
   and compile it ahead of time. Each step says what it did. Safe to run again.
 #>
 param(
@@ -24,7 +24,12 @@ $service = "$pkg/$pkg.HomeWatcherService"
 if ($Device -notmatch ':') { $Device = "${Device}:5555" }
 
 function Step([string]$what) { Write-Host "- $what" -ForegroundColor Cyan }
-function Shell([string]$cmd) { (adb -s $Device shell $cmd | Out-String).Trim() }
+# adb prints harmless warnings on stderr (e.g. "Activity not started..."), which Windows
+# PowerShell 5.1 would turn into terminating errors here; keep them as text instead.
+function Shell([string]$cmd) {
+    $ErrorActionPreference = 'Continue'
+    (adb -s $Device shell $cmd 2>&1 | ForEach-Object { "$_" } | Out-String).Trim()
+}
 
 Step "Connecting to $Device (choose Allow on the TV if it asks)"
 adb connect $Device | Out-Host
@@ -46,6 +51,9 @@ if ($current -and $current -ne 'null' -and $current -match [regex]::Escape($serv
     Shell 'settings put secure accessibility_enabled 1' | Out-Null
     Write-Host '  turned on'
 }
+
+Step 'Now Playing: let Lumen see media players (not notifications)'
+Shell "cmd notification allow_listener $pkg/$pkg.NowPlayingService" | Out-Null
 
 Step 'Wallpapers: allow Lumen to read /sdcard/Lumen/wallpapers'
 Shell "pm grant $pkg android.permission.READ_EXTERNAL_STORAGE" | Out-Null
