@@ -36,6 +36,22 @@ On a **Fire TV Stick 4K Max** (Fire OS 8, MT8696, 2 GB), Lumen 0.3.2, measured w
 The stock Amazon home screen on the same stick: about 160–200 MB, and it stays running in the
 background either way (the Home button opens it for an instant before Lumen takes over).
 
+Where a frame's time goes on that stick (presses half a second apart, about 2,900 frames, from
+`dumpsys gfxinfo framestats`). A frame has 16.7 ms:
+
+| Stage | Typical | Notes |
+|---|---|---|
+| Main thread: key, animation, layout, recording | 0.5 ms | Focus change itself: 0.3–0.6 ms |
+| Render thread: sync, GPU commands, hand-off | 2.7–2.9 ms | GPU commands 1.7 ms, queueing the frame 0.8 ms |
+| GPU | 3.7–4.2 ms | About 2.5 ms is the fixed cost of writing a 1080p frame; tiles about 0.8 ms; the background about 0.2 ms |
+| Whole frame (p50 / p90 / p99) | 3.9 / 5.1 / 9–11 ms | |
+
+The slowest 1% are mostly the render thread waiting for the CPU or for the display's buffer queue
+while other processes are busy (on the test stick Amazon's audio service used more than one of its
+four cores the whole time). Hiding the info band, the text shadow, the focus shadow or ring, or the
+background each changed the typical frame by 0.2 ms or less. With that background load, start
+times vary a lot between runs: three runs of the same build gave cold starts of 331–419 ms.
+
 Emulator comparison, measured with [`tools/bench.ps1`](tools/bench.ps1) on an Android 11 TV emulator at 1920×1080, 320 dpi
 (the Fire TV Stick 4K Max's resolution and density), software GPU, same apps for both builds:
 
@@ -81,6 +97,16 @@ adb install -r lumen.apk
 ```
 
 Get `lumen.apk` from [Releases](../../releases), or build it yourself (below).
+
+3. Optional, for the smoothest first day: open Lumen, wait about 10 seconds, then run
+
+```sh
+adb shell cmd package compile -m speed-profile -f io.github.grimmmyy.lumen
+```
+
+Android normally compiles Lumen's scrolling code ahead of time only during idle maintenance
+(often overnight). Until then, after each install or update, that code is compiled while you
+scroll, and the first scrolls can stutter on a Fire TV Stick. This does it right away.
 
 > **Check your model.** Some newer Fire TV devices (for example Fire TV Stick 4K Select and
 > Fire TV Stick HD 2026) run Vega OS, which does not run Android apps. Lumen needs a Fire OS

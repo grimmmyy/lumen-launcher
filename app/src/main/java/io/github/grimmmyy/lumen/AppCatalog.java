@@ -68,7 +68,15 @@ final class AppCatalog {
         // Sequence numbers restart at every boot, so a new boot means a full scan.
         if (boot < 0 || meta.getInt(KEY_BOOT, -2) != boot) return true;
         ChangedPackages changed = ctx.getPackageManager().getChangedPackages(meta.getInt(KEY_SEQ, 0));
-        return changed != null && !changed.getPackageNames().isEmpty();
+        if (changed == null) return false;
+        // Lumen isn't in its own list, so its own updates don't need a rescan.
+        for (String pkg : changed.getPackageNames()) if (!pkg.equals(ctx.getPackageName())) return true;
+        return false;
+    }
+
+    /** True if a list is already on screen from memory or the snapshot. */
+    static synchronized boolean hasList() {
+        return memory != null && !memory.isEmpty();
     }
 
     /**

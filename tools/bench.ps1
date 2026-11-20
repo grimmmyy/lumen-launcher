@@ -66,11 +66,6 @@ $version = ((Invoke-Device "dumpsys package $Package | grep -m1 versionName") -r
 $model = (Invoke-Device 'getprop ro.product.model').Trim()
 Write-Host "Lumen $version on $model ($Serial) $Label" -ForegroundColor Cyan
 
-if ($Compile) {
-    Write-Host 'Compiling with the baseline profile...'
-    Invoke-Device "cmd package compile -m speed-profile -f $Package" | Out-Null
-}
-
 # Force-stopping Lumen removes its Home-button service from the enabled list; restore it after.
 $a11y = (Invoke-Device 'settings get secure enabled_accessibility_services' | Out-String).Trim()
 $a11yOn = (Invoke-Device 'settings get secure accessibility_enabled' | Out-String).Trim()
@@ -85,6 +80,15 @@ try {
 # Warm-up: first launch renders and caches artwork; not counted.
 Wake; Invoke-Device "am start -W -n $activity" | Out-Null
 Start-Sleep 4
+
+if ($Compile) {
+    # Lumen hands its baseline profile to Android a few seconds after it starts
+    # (androidx.profileinstaller). Compiling before that compiles almost nothing:
+    # measured on a Fire TV Stick, the hot path was then still JIT-compiled.
+    Write-Host 'Compiling with the baseline profile...'
+    Start-Sleep 8
+    Invoke-Device "cmd package compile -m speed-profile -f $Package" | Out-Null
+}
 
 # Cold start: process killed, caches on disk (what you get after a reboot or OOM kill).
 $cold = @()

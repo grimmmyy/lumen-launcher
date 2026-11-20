@@ -16,6 +16,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -109,6 +110,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        shownAt = SystemClock.uptimeMillis();
         setContentView(R.layout.activity_main);
         prefs = new Prefs(this);
         images = new ImageLoader(this, io, main);
@@ -181,6 +183,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     @Override
     protected void onResume() {
         super.onResume();
+        shownAt = SystemClock.uptimeMillis();
         rebuild(); // cheap no-op unless recents or settings changed while away
         if (greetingView != null) greetingView.setText(greeting());
         // "Opened just now" and friends are time-based: refresh them for the tile in focus.
@@ -295,15 +298,35 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     // ---- Loading ------------------------------------------------------------
 
+    /**
+     * A rescan reads every app's label from its APK, and opening another app's
+     * resources takes a process-wide lock the main thread also needs to draw:
+     * on a Fire TV Stick 4K Max the main thread waited up to 133 ms for it. So
+     * when a list is already on screen (memory or snapshot), the rescan waits
+     * until the screen has been up for a moment.
+     */
+    private static final long SCAN_DELAY_MS = 2_000;
+    private long shownAt;
+    private final Runnable deferredRefresh = this::refresh;
+
     /** Background: rescan only if packages changed, reload Continue Watching, then rebuild. */
     private boolean stressRead;
 
     private void refresh() {
         final boolean readStress = !stressRead;
         stressRead = true;
+        final boolean scanNow = !AppCatalog.hasList() || SystemClock.uptimeMillis() - shownAt >= SCAN_DELAY_MS;
         io.execute(() -> {
             if (readStress) readStressSetting();
-            List<AppEntry> scanned = AppCatalog.needsScan(this) ? AppCatalog.scan(this) : null;
+            boolean scan = AppCatalog.needsScan(this);
+            if (scan && !scanNow) {
+                scan = false;
+                main.post(() -> {
+                    main.removeCallbacks(deferredRefresh);
+                    if (!isDestroyed()) main.postDelayed(deferredRefresh, SCAN_DELAY_MS);
+                });
+            }
+            List<AppEntry> scanned = scan ? AppCatalog.scan(this) : null;
             List<AppEntry> current = scanned != null ? scanned : AppCatalog.quick(this);
             List<WatchNext.Item> w = checkSelfPermission(EPG_PERMISSION) == PackageManager.PERMISSION_GRANTED
                     ? WatchNext.load(this) : Collections.emptyList();
