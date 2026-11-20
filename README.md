@@ -37,6 +37,8 @@ them, and stays smooth on cheap hardware.
   Layout → Motion effects turns it off.
 - **Feels like evening in the evening**: the backdrop takes a light warm tint in the morning, amber in the
   evening and a darker blue at night (Layout → Adapt colors to time of day).
+- **Lumen's own menus**: settings, app options and choices open in a panel that slides in from the
+  right, in the same typeface and focus style as Home, instead of the system dialogs. Back closes it.
 - **Inter typeface**, and optional interface sounds (off by default; TVs often delay HDMI audio).
 - **Ambient mode**: after a few idle minutes on Home (3 by default), the rows fade away and the background
   drifts slowly behind a large clock, the date, the weather and what's playing. Any key brings Home back

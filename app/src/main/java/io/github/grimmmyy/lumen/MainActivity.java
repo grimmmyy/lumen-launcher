@@ -1,7 +1,6 @@
 package io.github.grimmmyy.lumen;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -269,6 +268,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (Sheet.handleKey(this, event)) return true;
         // Any key wakes Home from ambient mode, and does nothing else.
         if (ambient != null && ambient.isShowing() && event.getAction() == KeyEvent.ACTION_DOWN) {
             exitAmbient(false);
@@ -995,16 +995,12 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private void showNowPlayingMenu() {
         NowPlaying.State s = playing;
         if (s == null) return;
-        String[] items = {s.playing ? "Pause" : "Play", "Next", "Previous", "Open " + s.appLabel};
-        dialog().setTitle(s.title)
-                .setItems(items, (d, which) -> {
-                    switch (which) {
-                        case 0: nowPlaying.playPause(); break;
-                        case 1: nowPlaying.next(); break;
-                        case 2: nowPlaying.previous(); break;
-                        default: openNowPlaying(); break;
-                    }
-                })
+        Sheet.with(this, s.title).caption("Now Playing")
+                .subtitle((s.subtitle != null ? s.subtitle + "\n" : "") + (s.playing ? "Playing on " : "Paused on ") + s.appLabel)
+                .item(s.playing ? "Pause" : "Play", nowPlaying::playPause)
+                .item("Next", nowPlaying::next)
+                .item("Previous", nowPlaying::previous)
+                .item("Open " + s.appLabel, this::openNowPlaying)
                 .show();
     }
 
@@ -1034,23 +1030,18 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     private void showAppMenu(AppEntry a, String prefix) {
         boolean favorite = "fav:".equals(prefix);
-        List<String> labels = new ArrayList<>();
-        List<Runnable> actions = new ArrayList<>();
+        Sheet sheet = Sheet.with(this, a.label).caption("App").subtitle(appDetails(a, null));
         if (favorite) {
-            labels.add("Move left");
-            actions.add(() -> moveFavorite(a.pkg, -1));
-            labels.add("Move right");
-            actions.add(() -> moveFavorite(a.pkg, 1));
-            labels.add("Remove from Top Shelf");
-            actions.add(() -> {
+            sheet.item("Move left", () -> moveFavorite(a.pkg, -1));
+            sheet.item("Move right", () -> moveFavorite(a.pkg, 1));
+            sheet.item("Remove from Top Shelf", () -> {
                 List<String> f = prefs.favorites();
                 f.remove(a.pkg);
                 prefs.setFavorites(f);
                 rebuild();
             });
         } else {
-            labels.add("Add to Top Shelf");
-            actions.add(() -> {
+            sheet.item("Add to Top Shelf", () -> {
                 List<String> f = prefs.favorites();
                 if (!f.contains(a.pkg)) f.add(a.pkg);
                 prefs.setFavorites(f);
@@ -1059,11 +1050,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         }
         String group = prefs.groupOf(a.pkg);
         if (group == null) {
-            labels.add("Add to a group\u2026");
-            actions.add(() -> chooseGroup(a));
+            sheet.item("Add to a group", () -> chooseGroup(a));
         } else {
-            labels.add("Remove from \u201c" + group + "\u201d");
-            actions.add(() -> {
+            sheet.item("Remove from \u201c" + group + "\u201d", () -> {
                 List<String> g = prefs.groupApps(group);
                 g.remove(a.pkg);
                 if (g.isEmpty()) prefs.deleteGroup(group);
@@ -1071,47 +1060,32 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                 rebuild();
             });
             if (prefix.startsWith("grp:")) {
-                labels.add("Move left in group");
-                actions.add(() -> moveInGroup(group, a.pkg, -1));
-                labels.add("Move right in group");
-                actions.add(() -> moveInGroup(group, a.pkg, 1));
-                labels.add("Rename \u201c" + group + "\u201d\u2026");
-                actions.add(() -> askName("Rename group", group, name -> {
+                sheet.item("Move left in group", () -> moveInGroup(group, a.pkg, -1));
+                sheet.item("Move right in group", () -> moveInGroup(group, a.pkg, 1));
+                sheet.item("Rename \u201c" + group + "\u201d", () -> askName("Rename group", group, name -> {
                     prefs.renameGroup(group, name);
                     rebuild();
                 }));
             }
         }
         if ("rec:".equals(prefix)) {
-            labels.add("Remove from Recent");
-            actions.add(() -> {
+            sheet.item("Remove from Recent", () -> {
                 prefs.forgetRecent(a.pkg);
                 rebuild();
             });
         }
-        labels.add("Hide");
-        actions.add(() -> {
+        sheet.item("Hide", () -> {
             Set<String> h = prefs.hidden();
             h.add(a.pkg);
             prefs.setHidden(h);
             rebuild();
         });
-        labels.add("App info");
-        actions.add(() -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        sheet.item("App info", () -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", a.pkg, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
-
-        TextView title = new TextView(this);
-        title.setPadding(dp(32), dp(22), dp(32), dp(10));
-        title.setTextColor(0xFFFFFFFF);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
-        title.setTypeface(Fonts.semibold(this));
-        title.setText(appDetails(a, null));
-        dialog().setCustomTitle(title)
-                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
-                .show();
+        sheet.show();
         io.execute(() -> {
             String sizes = Usage.sizes(this, a.pkg);
-            if (sizes != null) main.post(() -> title.setText(appDetails(a, sizes)));
+            if (sizes != null) main.post(() -> sheet.updateSubtitle(appDetails(a, sizes)));
         });
     }
 
@@ -1125,26 +1099,15 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         }
         String updated = "Updated " + android.text.format.DateUtils.getRelativeTimeSpanString(a.updated,
                 System.currentTimeMillis(), android.text.format.DateUtils.DAY_IN_MILLIS);
-        android.text.SpannableStringBuilder b = new android.text.SpannableStringBuilder(a.label);
-        int start = b.length();
-        b.append("\n").append(version).append(updated);
-        if (sizes != null) b.append("\n").append(sizes);
-        b.setSpan(new android.text.style.AbsoluteSizeSpan(16, true), start, b.length(), 0);
-        b.setSpan(new android.text.style.ForegroundColorSpan(0xB3FFFFFF), start, b.length(), 0);
-        return b;
+        return version + updated + (sizes != null ? "\n" + sizes : "");
     }
 
     private void chooseGroup(AppEntry a) {
-        List<String> groups = prefs.groups();
-        String[] items = new String[groups.size() + 1];
-        for (int i = 0; i < groups.size(); i++) items[i] = groups.get(i);
-        items[groups.size()] = "New group\u2026";
-        dialog().setTitle("Add " + a.label + " to")
-                .setItems(items, (d, which) -> {
-                    if (which < groups.size()) addToGroup(groups.get(which), a.pkg);
-                    else askName("New group", "", name -> addToGroup(name, a.pkg));
-                })
-                .show();
+        Sheet sheet = Sheet.with(this, "Add to a group").caption(a.label)
+                .subtitle("Groups are your own rows on Home. Apps in a group leave the Apps grid.");
+        for (String g : prefs.groups()) sheet.item(g, () -> addToGroup(g, a.pkg));
+        sheet.item("New group\u2026", () -> askName("New group", "", name -> addToGroup(name, a.pkg)));
+        sheet.show();
     }
 
     private void addToGroup(String group, String pkg) {
@@ -1165,39 +1128,38 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     }
 
     private void askName(String title, String current, java.util.function.Consumer<String> done) {
-        android.widget.EditText name = new android.widget.EditText(this);
-        name.setSingleLine(true);
-        name.setText(current);
-        name.setHint("e.g. Kids, Music, Games");
-        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        box.setPadding(dp(24), dp(8), dp(24), 0);
-        box.addView(name);
-        dialog().setTitle(title).setView(box)
-                .setPositiveButton("OK", (d, w) -> {
-                    String n = name.getText().toString().trim().replace('\n', ' ').replace(',', ' ');
-                    if (!n.isEmpty()) done.accept(n);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+        Sheet sheet = Sheet.with(this, title).subtitle("Press Select on the field to type.");
+        android.widget.EditText name = sheet.input("e.g. Kids, Music, Games", current);
+        sheet.button("Save", false, () -> {
+            String n = name.getText().toString().trim().replace('\n', ' ').replace(',', ' ');
+            if (!n.isEmpty()) done.accept(n);
+        });
+        sheet.button("Cancel", false, null);
+        sheet.show();
     }
 
     private void showSleepTimer() {
-        final int[] minutes = {0, 15, 30, 60, 90, -1};
-        String[] labels = {"Off", "In 15 minutes", "In 30 minutes", "In 1 hour", "In 1 hour 30 minutes", "Sleep now"};
-        dialog().setTitle(SleepTimer.minutesLeft() > 0 ? "Sleep timer: " + SleepTimer.minutesLeft() + " min left" : "Sleep timer")
-                .setItems(labels, (d, which) -> {
-                    if (minutes[which] < 0) {
-                        if (!SleepTimer.sleepNow(this)) toast("Needs the Home button service (Lumen > Setup)");
-                        return;
-                    }
-                    SleepTimer.set(this, minutes[which]);
-                    if (minutes[which] > 0 && !isHomeWatcherEnabled()) {
-                        toast("The TV will sleep only if the Home button service is on (Lumen > Setup)");
-                    }
-                    signature = null;
-                    rebuild();
-                })
-                .show();
+        final int[] minutes = {0, 15, 30, 60, 90};
+        String[] labels = {"Off", "In 15 minutes", "In 30 minutes", "In 1 hour", "In 1 hour 30 minutes"};
+        int left = SleepTimer.minutesLeft();
+        Sheet sheet = Sheet.with(this, "Sleep timer").caption("Quick")
+                .subtitle(left > 0 ? "The TV sleeps in " + left + " min. Whatever is playing is paused first."
+                        : "Pauses whatever is playing, then puts the TV to sleep.");
+        for (int i = 0; i < minutes.length; i++) {
+            final int m = minutes[i];
+            sheet.choice(labels[i], m == 0 ? left == 0 : false, () -> {
+                SleepTimer.set(this, m);
+                if (m > 0 && !isHomeWatcherEnabled()) {
+                    toast("The TV will sleep only if the Home button service is on (Lumen > Setup)");
+                }
+                signature = null;
+                rebuild();
+            });
+        }
+        sheet.item("Sleep now", () -> {
+            if (!SleepTimer.sleepNow(this)) toast("Needs the Home button service (Lumen > Setup)");
+        });
+        sheet.show();
     }
 
     private void moveFavorite(String pkg, int delta) {
@@ -1213,45 +1175,29 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     private void showLumenSettings() {
         boolean watcherOn = isHomeWatcherEnabled();
-        String[] items = {
-                "Setup and health" + (watcherOn ? "" : "  ·  Home button is off"),
-                "Profile: " + prefs.profileName(),
-                "Layout",
-                "Background: " + ArtGen.LABELS[Math.max(0, java.util.Arrays.asList(ArtGen.STYLES).indexOf(prefs.backgroundStyle()))],
-                "Ambient mode: " + (prefs.ambientMinutes() == 0 ? "Off" : "after " + prefs.ambientMinutes() + " min"),
-                "Weather: " + (weather.enabled() ? weather.placeName() : "Off"),
-                "Hidden apps (" + prefs.hidden().size() + ")",
-                "Wallpapers",
-                "Reload wallpapers and apps",
-                "Reset Top Shelf",
-                "Open Fire TV home",
-        };
-        dialog().setTitle("Lumen " + BuildConfigHelper.versionName(this))
-                .setItems(items, (d, which) -> {
-                    switch (which) {
-                        case 0: openSetup(); break;
-                        case 1: showProfiles(false); break;
-                        case 2: showLayoutOptions(); break;
-                        case 3: showBackgroundStyles(); break;
-                        case 4: showAmbientOptions(); break;
-                        case 5: showWeatherOptions(); break;
-                        case 6: showHiddenApps(); break;
-                        case 7: showWallpaperHelp(); break;
-                        case 8:
-                            images.clear();
-                            backdrop.invalidate();
-                            AppCatalog.markDirty();
-                            signature = null;
-                            refresh();
-                            break;
-                        case 9:
-                            prefs.resetFavorites();
-                            rebuild();
-                            break;
-                        case 10: openFireHome(); break;
-                        default: break;
-                    }
+        String bg = ArtGen.LABELS[Math.max(0, java.util.Arrays.asList(ArtGen.STYLES).indexOf(prefs.backgroundStyle()))];
+        Sheet.with(this, "Settings").caption("Lumen " + BuildConfigHelper.versionName(this))
+                .item("Setup and health", watcherOn ? null : "Home button off", this::openSetup)
+                .item("Profile", prefs.profileName(), () -> showProfiles(false))
+                .item("Layout", this::showLayoutOptions)
+                .item("Background", bg, this::showBackgroundStyles)
+                .item("Ambient mode", prefs.ambientMinutes() == 0 ? "Off" : prefs.ambientMinutes() + " min",
+                        this::showAmbientOptions)
+                .item("Weather", weather.enabled() ? weather.placeName() : "Off", this::showWeatherOptions)
+                .item("Hidden apps", String.valueOf(prefs.hidden().size()), this::showHiddenApps)
+                .item("Wallpapers", this::showWallpaperHelp)
+                .item("Reload wallpapers and apps", () -> {
+                    images.clear();
+                    backdrop.invalidate();
+                    AppCatalog.markDirty();
+                    signature = null;
+                    refresh();
                 })
+                .item("Reset Top Shelf", () -> {
+                    prefs.resetFavorites();
+                    rebuild();
+                })
+                .item("Open Fire TV home", this::openFireHome)
                 .show();
     }
 
@@ -1261,36 +1207,25 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
      */
     private void showProfiles(boolean wake) {
         List<Prefs.Profile> list = prefs.profiles();
-        List<String> labels = new ArrayList<>();
-        List<Runnable> actions = new ArrayList<>();
         int current = prefs.currentProfile();
-        for (Prefs.Profile p : list) {
-            labels.add((p.id == current ? "\u2713  " : "     ") + p.name);
-            actions.add(() -> switchProfile(p.id));
-        }
+        Sheet sheet = Sheet.with(this, wake ? "Who's watching?" : "Profiles")
+                .subtitle(wake ? null : "Each profile has its own Top Shelf, hidden apps, Recent row and background.");
+        for (Prefs.Profile p : list) sheet.choice(p.name, p.id == current, () -> switchProfile(p.id));
         if (!wake) {
-            labels.add("Add a profile\u2026");
-            actions.add(() -> askName("New profile", "", name -> switchProfile(prefs.addProfile(name))));
-            labels.add("Rename \u201c" + prefs.profileName() + "\u201d\u2026");
-            actions.add(() -> askName("Rename profile", prefs.profileName(), name -> {
+            sheet.item("Add a profile", () -> askName("New profile", "", name -> switchProfile(prefs.addProfile(name))));
+            sheet.item("Rename \u201c" + prefs.profileName() + "\u201d", () -> askName("Rename profile", prefs.profileName(), name -> {
                 prefs.renameProfile(prefs.currentProfile(), name);
                 updateGreeting();
             }));
             if (current != 0) {
-                labels.add("Remove \u201c" + prefs.profileName() + "\u201d");
-                actions.add(() -> {
+                sheet.item("Remove \u201c" + prefs.profileName() + "\u201d", () -> {
                     prefs.removeProfile(current);
                     switchProfile(0);
                 });
             }
-            if (list.size() > 1) {
-                labels.add("Ask who's watching when the TV wakes: " + (prefs.askOnWake() ? "On" : "Off"));
-                actions.add(() -> prefs.setAskOnWake(!prefs.askOnWake()));
-            }
+            if (list.size() > 1) sheet.toggle("Ask who's watching when the TV wakes", prefs.askOnWake(), prefs::setAskOnWake);
         }
-        dialog().setTitle(wake ? "Who's watching?" : "Profiles")
-                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
-                .show();
+        sheet.show();
     }
 
     private void switchProfile(int id) {
@@ -1315,91 +1250,85 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     }
 
     private void showBackgroundStyles() {
-        int current = java.util.Arrays.asList(ArtGen.STYLES).indexOf(prefs.backgroundStyle());
-        dialog().setTitle("Background")
-                .setSingleChoiceItems(ArtGen.LABELS, Math.max(0, current), (d, which) -> {
-                    prefs.setBackgroundStyle(ArtGen.STYLES[which]);
-                    Backdrop.style = ArtGen.STYLES[which];
-                    backdrop.invalidate();
-                    View f = getCurrentFocus();
-                    if (f instanceof TileView) onTileFocused((TileView) f);
-                    d.dismiss();
-                })
-                .show();
+        Sheet sheet = Sheet.with(this, "Background")
+                .subtitle("Your own wallpapers (Settings > Wallpapers) always come first.");
+        String current = prefs.backgroundStyle();
+        for (int i = 0; i < ArtGen.STYLES.length; i++) {
+            final String style = ArtGen.STYLES[i];
+            sheet.choice(ArtGen.LABELS[i], style.equals(current), () -> {
+                prefs.setBackgroundStyle(style);
+                Backdrop.style = style;
+                backdrop.invalidate();
+                View f = getCurrentFocus();
+                if (f instanceof TileView) onTileFocused((TileView) f);
+            });
+        }
+        sheet.show();
     }
 
     private void showAmbientOptions() {
         final int[] minutes = {0, 1, 3, 5, 10};
         String[] labels = {"Off", "After 1 minute", "After 3 minutes", "After 5 minutes", "After 10 minutes"};
-        int current = 0;
-        for (int i = 0; i < minutes.length; i++) if (minutes[i] == prefs.ambientMinutes()) current = i;
-        dialog().setTitle("Ambient mode")
-                .setSingleChoiceItems(labels, current, (d, which) -> {
-                    prefs.setAmbientMinutes(minutes[which]);
-                    scheduleAmbient();
-                    d.dismiss();
-                })
-                .show();
+        Sheet sheet = Sheet.with(this, "Ambient mode")
+                .subtitle("When Home is left idle, the rows fade away behind a large clock, the weather and what's "
+                        + "playing. Any button brings Home back.");
+        for (int i = 0; i < minutes.length; i++) {
+            final int m = minutes[i];
+            sheet.choice(labels[i], m == prefs.ambientMinutes(), () -> {
+                prefs.setAmbientMinutes(m);
+                scheduleAmbient();
+            });
+        }
+        sheet.show();
     }
 
     private void showWeatherOptions() {
-        android.widget.EditText city = new android.widget.EditText(this);
-        city.setSingleLine(true);
-        city.setHint("City, e.g. Seattle");
-        if (weather.enabled()) city.setText(weather.placeName().split(",")[0]);
-        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        box.setPadding(dp(24), dp(8), dp(24), 0);
-        box.addView(city);
-        AlertDialog.Builder b = dialog().setTitle("Weather")
-                .setMessage("Shows the temperature in the info band and ambient mode, from Open-Meteo. "
-                        + "Only the city (to find it) and its coordinates are sent; no account.")
-                .setView(box)
-                .setPositiveButton("Save", (d, w) -> {
-                    String q = city.getText().toString().trim();
-                    if (q.isEmpty()) return;
-                    weather.setCity(q, place -> {
-                        toast(place == null ? "Couldn't find that city" : "Weather for " + place.name);
-                        weather.refresh(line -> updateGreeting());
-                    });
-                })
-                .setNeutralButton(weather.fahrenheit() ? "Use \u00b0C" : "Use \u00b0F", (d, w) -> {
-                    weather.setFahrenheit(!weather.fahrenheit());
-                    weather.refresh(line -> updateGreeting());
-                });
-        if (weather.enabled()) b.setNegativeButton("Turn off", (d, w) -> {
+        Sheet sheet = Sheet.with(this, "Weather")
+                .subtitle("Shows the temperature next to the greeting and in ambient mode, from Open-Meteo. Only the "
+                        + "city (to find it) and its coordinates are sent; no account.");
+        android.widget.EditText city = sheet.input("City, e.g. Seattle",
+                weather.enabled() ? weather.placeName().split(",")[0] : "");
+        sheet.button("Save", false, () -> {
+            String q = city.getText().toString().trim();
+            if (q.isEmpty()) return;
+            weather.setCity(q, place -> {
+                toast(place == null ? "Couldn't find that city" : "Weather for " + place.name);
+                weather.refresh(line -> updateGreeting());
+            });
+        });
+        sheet.toggle("Temperature in \u00b0F", weather.fahrenheit(), on -> {
+            weather.setFahrenheit(on);
+            weather.refresh(line -> updateGreeting());
+        });
+        if (weather.enabled()) sheet.item("Turn weather off", () -> {
             weather.clear();
             updateGreeting();
         });
-        b.show();
+        sheet.show();
     }
 
     private void showLayoutOptions() {
-        final String[] keys = {Prefs.ROW_NOW, Prefs.ROW_RECENT, Prefs.ROW_APPS, Prefs.ROW_QUICK};
-        final String[] opts = {Prefs.OPT_MOTION, Prefs.OPT_TIME_TINT, Prefs.OPT_SOUNDS};
-        String[] labels = {"Now Playing card", "Recent row", "Apps grid", "Quick controls row", "Larger tiles and text",
-                "Motion effects (tilt, light, zoom)", "Adapt colors to time of day", "Sounds"};
-        boolean[] checked = new boolean[labels.length];
-        for (int i = 0; i < keys.length; i++) checked[i] = prefs.rowEnabled(keys[i]);
         final boolean wasLarge = prefs.largeTiles();
-        checked[keys.length] = wasLarge;
-        for (int i = 0; i < opts.length; i++) checked[keys.length + 1 + i] = prefs.option(opts[i]);
-        dialog().setTitle("Home screen layout")
-                .setMultiChoiceItems(labels, checked, (d, which, on) -> {
-                    if (which < keys.length) prefs.setRowEnabled(keys[which], on);
-                    else if (which == keys.length) prefs.setLargeTiles(on);
-                    else {
-                        String o = opts[which - keys.length - 1];
-                        prefs.setOption(o, on);
-                        Motion.effects = prefs.option(Prefs.OPT_MOTION);
-                        Sounds.setEnabled(this, prefs.option(Prefs.OPT_SOUNDS));
-                        if (Prefs.OPT_TIME_TINT.equals(o)) {
-                            Backdrop.timeOfDay = on;
-                            backdrop.invalidate();
-                        }
-                    }
+        Sheet.with(this, "Layout").subtitle("Changes apply when you close this panel.")
+                .toggle("Now Playing card", prefs.rowEnabled(Prefs.ROW_NOW), on -> prefs.setRowEnabled(Prefs.ROW_NOW, on))
+                .toggle("Recent row", prefs.rowEnabled(Prefs.ROW_RECENT), on -> prefs.setRowEnabled(Prefs.ROW_RECENT, on))
+                .toggle("Apps grid", prefs.rowEnabled(Prefs.ROW_APPS), on -> prefs.setRowEnabled(Prefs.ROW_APPS, on))
+                .toggle("Quick row", prefs.rowEnabled(Prefs.ROW_QUICK), on -> prefs.setRowEnabled(Prefs.ROW_QUICK, on))
+                .toggle("Larger tiles and text", wasLarge, prefs::setLargeTiles)
+                .toggle("Motion effects", prefs.option(Prefs.OPT_MOTION), on -> {
+                    prefs.setOption(Prefs.OPT_MOTION, on);
+                    Motion.effects = on;
                 })
-                .setPositiveButton("Done", null)
-                .setOnDismissListener(d -> {
+                .toggle("Adapt colors to time of day", prefs.option(Prefs.OPT_TIME_TINT), on -> {
+                    prefs.setOption(Prefs.OPT_TIME_TINT, on);
+                    Backdrop.timeOfDay = on;
+                    backdrop.invalidate();
+                })
+                .toggle("Sounds", prefs.option(Prefs.OPT_SOUNDS), on -> {
+                    prefs.setOption(Prefs.OPT_SOUNDS, on);
+                    Sounds.setEnabled(this, on);
+                })
+                .onClose(() -> {
                     // Tile sizes are fixed at creation, so a size change rebuilds the screen.
                     if (prefs.largeTiles() != wasLarge) recreate();
                     else rebuild();
@@ -1418,37 +1347,35 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
             toast("No hidden apps");
             return;
         }
-        String[] names = new String[pkgs.size()];
-        for (int i = 0; i < pkgs.size(); i++) {
-            AppEntry a = byPkg.get(pkgs.get(i));
-            names[i] = a != null ? a.label : pkgs.get(i);
+        Sheet sheet = Sheet.with(this, "Hidden apps").subtitle("Select an app to show it again.");
+        for (String p : pkgs) {
+            AppEntry a = byPkg.get(p);
+            sheet.item(a != null ? a.label : p, () -> {
+                Set<String> h = prefs.hidden();
+                h.remove(p);
+                prefs.setHidden(h);
+                rebuild();
+            });
         }
-        dialog().setTitle("Choose an app to show again")
-                .setItems(names, (d, which) -> {
-                    Set<String> h = prefs.hidden();
-                    h.remove(pkgs.get(which));
-                    prefs.setHidden(h);
-                    rebuild();
-                })
-                .show();
+        sheet.show();
     }
 
     private void showWallpaperHelp() {
         boolean canRead = checkSelfPermission(storagePermission()) == PackageManager.PERMISSION_GRANTED;
         String path = backdrop.folder().getAbsolutePath();
-        AlertDialog.Builder b = dialog().setTitle("Wallpapers")
-                .setMessage("Copy images to:\n" + path + "\n\n"
-                        + "default.jpg  — shown for every app\n"
-                        + "<package>.jpg  — shown when that app is focused, e.g. com.netflix.ninja.jpg\n\n"
-                        + "PNG and WebP work too. 1920×1080 is ideal. Then choose "
-                        + "\"Reload wallpapers and apps\".\n\n"
-                        + "Without wallpapers, the background is a soft blur of the focused app."
-                        + (canRead ? "" : "\n\nLumen needs permission to read photos to show them."))
-                .setPositiveButton("OK", null);
+        Sheet sheet = Sheet.with(this, "Wallpapers")
+                .subtitle("Without wallpapers, the background is a soft blur of the focused app, or the style you "
+                        + "pick in Background.")
+                .text("Copy images to\n" + path + "\n\n"
+                        + "default.jpg \u2014 shown for every app\n"
+                        + "<package>.jpg \u2014 shown when that app is focused, e.g. com.netflix.ninja.jpg\n\n"
+                        + "PNG and WebP work too; 1920\u00d71080 is ideal. Then choose \u201cReload wallpapers and apps\u201d.");
         if (!canRead) {
-            b.setNeutralButton("Allow", (d, w) -> requestPermissions(new String[]{storagePermission()}, REQ_STORAGE));
+            sheet.text("Lumen needs permission to read photos to show them.");
+            sheet.button("Allow", false, () -> requestPermissions(new String[]{storagePermission()}, REQ_STORAGE));
         }
-        b.show();
+        sheet.button("OK", false, null);
+        sheet.show();
     }
 
     private void openFireHome() {
@@ -1472,9 +1399,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     // ---- Helpers ------------------------------------------------------------
 
-    private AlertDialog.Builder dialog() {
-        return new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
-    }
+
 
     private void launch(Intent i) {
         try {

@@ -210,27 +210,20 @@ public class SetupActivity extends Activity {
         }, LumenApp.io());
     }
 
-    /** A panel with the exact computer commands for a fix, in large monospace type. */
+    /** A panel with the exact computer commands for a fix. */
     private void showCommands(String title, String intro, String commands) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(28), dp(12), dp(28), dp(8));
-        TextView introView = text(intro, 17, 0xCCFFFFFF, false);
-        box.addView(introView);
-        TextView cmd = text(commands, 17, Color.WHITE, false);
-        cmd.setTypeface(Typeface.MONOSPACE);
-        cmd.setTextIsSelectable(false);
-        cmd.setPadding(dp(18), dp(14), dp(18), dp(14));
-        cmd.setBackground(rounded(0x33000000, 0));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(14);
-        box.addView(cmd, lp);
-        TextView more = text("Or run tools/setup.ps1 (Windows) or tools/setup.sh from Lumen's GitHub page: "
-                + "it does every step on this page at once.", 15, 0x99FFFFFF, false);
-        more.setPadding(0, dp(14), 0, 0);
-        box.addView(more);
-        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(title).setView(box).setPositiveButton("OK", null).show();
+        Sheet.with(this, title).caption("Setup").subtitle(intro)
+                .code(commands)
+                .text("Or run setup.ps1 (Windows) or setup.sh (macOS, Linux) from Lumen's latest release: "
+                        + "it does every step on this page at once.")
+                .button("OK", false, null)
+                .show();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (Sheet.handleKey(this, event)) return true;
+        return super.dispatchKeyEvent(event);
     }
 
     @Override
