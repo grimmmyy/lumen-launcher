@@ -101,7 +101,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     /** Lumen has stayed on screen long enough to count as working: reset the crash guard. */
     private final Runnable markStable = () -> {
         boolean wasSafe = prefs.isSafeMode();
-        prefs.setSafeMode(false);
+        // A synchronous disk write (tens of ms on a Fire TV Stick): not on the
+        // thread that draws, 5 s after Home is exactly when people are scrolling.
+        io.execute(() -> prefs.setSafeMode(false));
         if (wasSafe) toast("Home button opens Lumen again");
     };
 
