@@ -114,6 +114,22 @@ final class Prefs {
         sp.edit().putBoolean(key, on).apply();
     }
 
+    int ambientMinutes() {
+        return sp.getInt("ambient_min", 3);
+    }
+
+    void setAmbientMinutes(int m) {
+        sp.edit().putInt("ambient_min", m).apply();
+    }
+
+    String backgroundStyle() {
+        return sp.getString("bg_style", ArtGen.NONE);
+    }
+
+    void setBackgroundStyle(String s) {
+        sp.edit().putString("bg_style", s).apply();
+    }
+
     boolean largeTiles() {
         return sp.getBoolean(KEY_LARGE, false);
     }

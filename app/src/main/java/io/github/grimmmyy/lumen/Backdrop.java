@@ -71,6 +71,7 @@ final class Backdrop {
         this.images = images;
         this.dir = dir;
         this.onFirstOpaque = onFirstOpaque;
+        scanWalls();
     }
 
     File folder() {
@@ -81,6 +82,7 @@ final class Backdrop {
     void invalidate() {
         composed.evictAll();
         currentKey = null;
+        scanWalls();
     }
 
     void trim() {
@@ -90,6 +92,30 @@ final class Backdrop {
     /**
      * @param seed the tile's own artwork bitmap, used for the blurred backdrop; may be null
      */
+    /** Layout > Background: ArtGen.NONE (blur of the focused app) or a generated style. */
+    static volatile String style = ArtGen.NONE;
+    /** Wallpaper names present (without extension), so requests never touch the disk. */
+    private volatile java.util.Set<String> walls = java.util.Collections.emptySet();
+    private Bitmap shown;
+
+    /** The image on screen now (for ambient mode), or null. */
+    Bitmap current() {
+        return shown;
+    }
+
+    private void scanWalls() {
+        io.execute(() -> {
+            java.util.Set<String> s = new java.util.HashSet<>();
+            File[] files = dir != null ? dir.listFiles() : null;
+            if (files != null) for (File f : files) {
+                String n = f.getName();
+                int dot = n.lastIndexOf('.');
+                if (dot > 0 && f.canRead()) s.add(n.substring(0, dot));
+            }
+            walls = s;
+        });
+    }
+
     /** Layout > Adapt to time of day. */
     static volatile boolean timeOfDay = true;
 
@@ -108,6 +134,16 @@ final class Backdrop {
     }
 
     void request(String pkg, String imageUri, int color, Bitmap seed) {
+        java.util.Set<String> w = walls;
+        if (!ArtGen.NONE.equals(style) && imageUri == null && !w.contains(pkg) && !w.contains("default")) {
+            // A generated background: the same image for every app, so moving
+            // focus doesn't crossfade at all.
+            final String s = style;
+            final long day = System.currentTimeMillis() / 86_400_000L;
+            final String gkey = "gen|" + s + "|" + day + "|" + timeTint();
+            schedule(gkey, () -> startGenerated(gkey, s, day));
+            return;
+        }
         final String key = (pkg == null ? "" : pkg) + "|" + (imageUri == null ? "" : imageUri)
                 + "|" + color + "|" + (seed != null) + "|" + timeTint();
         schedule(key, () -> start(key, pkg, imageUri, color, seed, false));
@@ -141,6 +177,28 @@ final class Backdrop {
             try {
                 out = seedFirst && seed != null && !seed.isRecycled() ? finish(blur(seed, color))
                         : compose(pkg, imageUri, color, seed);
+            } catch (RuntimeException | OutOfMemoryError e) {
+                out = null;
+            }
+            final Bitmap result = out;
+            main.post(() -> {
+                if (result == null) return;
+                composed.put(key, result);
+                if (key.equals(currentKey)) show(result);
+            });
+        });
+    }
+
+    private void startGenerated(String key, String s, long day) {
+        Bitmap hit = composed.get(key);
+        if (hit != null) {
+            show(hit);
+            return;
+        }
+        io.execute(() -> {
+            Bitmap out;
+            try {
+                out = finish(ArtGen.render(s, day));
             } catch (RuntimeException | OutOfMemoryError e) {
                 out = null;
             }
@@ -277,6 +335,7 @@ final class Backdrop {
         under.setZ(0f);
         in.setZ(1f);
         in.setImageBitmap(bmp);
+        shown = bmp;
         in.setAlpha(0f);
         in.animate().alpha(1f).setDuration(FADE_MS).setInterpolator(Motion.SCROLL).withEndAction(() -> {
             under.setImageDrawable(null);

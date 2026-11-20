@@ -59,6 +59,10 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private Backdrop backdrop;
     private NowPlaying nowPlaying;
     private NowPlaying.State playing;
+    private Weather weather;
+    private AmbientView ambient;
+    private boolean swallowKeyUp;
+    private final Runnable enterAmbient = this::enterAmbient;
     private RecyclerView home;
     private HomeLayoutManager layout;
     private HomeAdapter adapter;
@@ -138,6 +142,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         gridH = Math.round(gridW * 9f / 16f);
 
         Motion.effects = prefs.option(Prefs.OPT_MOTION);
+        Backdrop.style = prefs.backgroundStyle();
+        weather = new Weather(this);
         Backdrop.timeOfDay = prefs.option(Prefs.OPT_TIME_TINT);
         Sounds.setEnabled(this, prefs.option(Prefs.OPT_SOUNDS));
         art = LumenApp.art(this, radius);
@@ -168,6 +174,10 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         // The backdrop images use Z 0/1 to order their crossfade; keep the list above both.
         // (No background means no outline, so this draws no shadow.)
         home.setZ(2f);
+        ambient = new AmbientView(this);
+        ambient.setTranslationZ(5f);
+        ((ViewGroup) findViewById(android.R.id.content)).addView(ambient,
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         focusLabel = findViewById(R.id.focusLabel);
         focusBar = findViewById(R.id.focusBar);
         home.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -204,12 +214,14 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         super.onResume();
         shownAt = SystemClock.uptimeMillis();
         rebuild(); // cheap no-op unless recents or settings changed while away
-        if (greetingView != null) greetingView.setText(greeting());
+        updateGreeting();
         // "Opened just now" and friends are time-based: refresh them for the tile in focus.
         View f = getCurrentFocus();
         if (f instanceof TileView) onTileFocused((TileView) f);
         refresh();
         main.postDelayed(markStable, 5_000);
+        scheduleAmbient();
+        weather.refresh(line -> updateGreeting());
         // First run: show Setup once, so the Home button doesn't stay off unnoticed.
         if (!prefs.setupShown() && !isHomeWatcherEnabled()) main.postDelayed(this::openSetup, 1_500);
         // Art trimmed while away is reloaded in the background, after the first frames.
@@ -221,6 +233,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     @Override
     protected void onPause() {
+        main.removeCallbacks(enterAmbient);
+        exitAmbient(true);
         main.removeCallbacks(markStable);
         main.removeCallbacks(rewarm);
         super.onPause();
@@ -249,6 +263,18 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // Any key wakes Home from ambient mode, and does nothing else.
+        if (ambient != null && ambient.isShowing() && event.getAction() == KeyEvent.ACTION_DOWN) {
+            exitAmbient(false);
+            swallowKeyUp = true;
+            scheduleAmbient();
+            return true;
+        }
+        if (swallowKeyUp && event.getAction() == KeyEvent.ACTION_UP) {
+            swallowKeyUp = false;
+            return true;
+        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN) scheduleAmbient();
         Motion.onKey(event);
         return super.dispatchKeyEvent(event);
     }
@@ -667,7 +693,58 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         heroTitleView.setText(heroTitle);
         heroSubtitleView.setText(heroSubtitle);
         heroHintView.setText(heroHint);
-        greetingView.setText(greeting());
+        updateGreeting();
+    }
+
+    /** "Good evening", plus the weather when it's turned on. */
+    private void updateGreeting() {
+        if (greetingView == null) return;
+        String w = weather != null ? weather.cached() : null;
+        greetingView.setText(w == null ? greeting() : greeting() + "   \u00b7   " + w);
+        if (ambient != null && ambient.isShowing()) ambient.setWeather(weatherLineLong());
+    }
+
+    private String weatherLineLong() {
+        String w = weather.cached();
+        return w == null ? null : w + "   \u00b7   " + weather.placeName();
+    }
+
+    // ---- Ambient mode ---------------------------------------------------------
+
+    private void scheduleAmbient() {
+        main.removeCallbacks(enterAmbient);
+        int min = prefs.ambientMinutes();
+        if (min > 0 && !isFinishing()) main.postDelayed(enterAmbient, min * 60_000L);
+    }
+
+    private void enterAmbient() {
+        if (ambient.isShowing() || !hasWindowFocus()) return;
+        weather.refresh(line -> updateGreeting());
+        Bitmap scene = backdrop.current();
+        if (scene == null) scene = ArtGen.render(ArtGen.NONE.equals(Backdrop.style) ? "aurora" : Backdrop.style,
+                System.currentTimeMillis() / 86_400_000L);
+        ambient.show(scene, weatherLineLong(), nowPlayingLine());
+        // Stop drawing the rows (and the backdrop under the opaque scene) once covered.
+        main.postDelayed(() -> {
+            if (!ambient.isShowing()) return;
+            home.setVisibility(View.INVISIBLE);
+            findViewById(R.id.backdropA).setVisibility(View.INVISIBLE);
+            findViewById(R.id.backdropB).setVisibility(View.INVISIBLE);
+        }, 950);
+    }
+
+    private void exitAmbient(boolean quick) {
+        if (ambient == null || !ambient.isShowing()) return;
+        home.setVisibility(View.VISIBLE);
+        findViewById(R.id.backdropA).setVisibility(View.VISIBLE);
+        findViewById(R.id.backdropB).setVisibility(View.VISIBLE);
+        ambient.hide(quick);
+    }
+
+    private String nowPlayingLine() {
+        NowPlaying.State s = playing;
+        if (s == null || !s.playing) return null;
+        return s.subtitle != null ? s.title + "  \u2014  " + s.subtitle : s.title;
     }
 
     /** "Larger tiles and text": grow the header's text and its fixed line heights together. */
@@ -771,6 +848,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private void onNowPlaying(NowPlaying.State s) {
         boolean wasShown = playing != null;
         playing = s;
+        if (ambient.isShowing()) ambient.setNowPlaying(nowPlayingLine());
         if ((s != null) != wasShown) {
             rebuild(); // the card appears or goes
             return;
@@ -939,6 +1017,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         String[] items = {
                 "Setup and health" + (watcherOn ? "" : "  ·  Home button is off"),
                 "Layout",
+                "Background: " + ArtGen.LABELS[Math.max(0, java.util.Arrays.asList(ArtGen.STYLES).indexOf(prefs.backgroundStyle()))],
+                "Ambient mode: " + (prefs.ambientMinutes() == 0 ? "Off" : "after " + prefs.ambientMinutes() + " min"),
+                "Weather: " + (weather.enabled() ? weather.placeName() : "Off"),
                 "Hidden apps (" + prefs.hidden().size() + ")",
                 "Wallpapers",
                 "Reload wallpapers and apps",
@@ -950,24 +1031,86 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                     switch (which) {
                         case 0: openSetup(); break;
                         case 1: showLayoutOptions(); break;
-                        case 2: showHiddenApps(); break;
-                        case 3: showWallpaperHelp(); break;
-                        case 4:
+                        case 2: showBackgroundStyles(); break;
+                        case 3: showAmbientOptions(); break;
+                        case 4: showWeatherOptions(); break;
+                        case 5: showHiddenApps(); break;
+                        case 6: showWallpaperHelp(); break;
+                        case 7:
                             images.clear();
                             backdrop.invalidate();
                             AppCatalog.markDirty();
                             signature = null;
                             refresh();
                             break;
-                        case 5:
+                        case 8:
                             prefs.resetFavorites();
                             rebuild();
                             break;
-                        case 6: openFireHome(); break;
+                        case 9: openFireHome(); break;
                         default: break;
                     }
                 })
                 .show();
+    }
+
+    private void showBackgroundStyles() {
+        int current = java.util.Arrays.asList(ArtGen.STYLES).indexOf(prefs.backgroundStyle());
+        dialog().setTitle("Background")
+                .setSingleChoiceItems(ArtGen.LABELS, Math.max(0, current), (d, which) -> {
+                    prefs.setBackgroundStyle(ArtGen.STYLES[which]);
+                    Backdrop.style = ArtGen.STYLES[which];
+                    backdrop.invalidate();
+                    View f = getCurrentFocus();
+                    if (f instanceof TileView) onTileFocused((TileView) f);
+                    d.dismiss();
+                })
+                .show();
+    }
+
+    private void showAmbientOptions() {
+        final int[] minutes = {0, 1, 3, 5, 10};
+        String[] labels = {"Off", "After 1 minute", "After 3 minutes", "After 5 minutes", "After 10 minutes"};
+        int current = 0;
+        for (int i = 0; i < minutes.length; i++) if (minutes[i] == prefs.ambientMinutes()) current = i;
+        dialog().setTitle("Ambient mode")
+                .setSingleChoiceItems(labels, current, (d, which) -> {
+                    prefs.setAmbientMinutes(minutes[which]);
+                    scheduleAmbient();
+                    d.dismiss();
+                })
+                .show();
+    }
+
+    private void showWeatherOptions() {
+        android.widget.EditText city = new android.widget.EditText(this);
+        city.setSingleLine(true);
+        city.setHint("City, e.g. Seattle");
+        if (weather.enabled()) city.setText(weather.placeName().split(",")[0]);
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        box.setPadding(dp(24), dp(8), dp(24), 0);
+        box.addView(city);
+        AlertDialog.Builder b = dialog().setTitle("Weather")
+                .setMessage("Shows the temperature in the info band and ambient mode, from Open-Meteo. "
+                        + "Only the city (to find it) and its coordinates are sent; no account.")
+                .setView(box)
+                .setPositiveButton("Save", (d, w) -> {
+                    String q = city.getText().toString().trim();
+                    if (q.isEmpty()) return;
+                    weather.setCity(q, place -> {
+                        toast(place == null ? "Couldn't find that city" : "Weather for " + place.name);
+                        weather.refresh(line -> updateGreeting());
+                    });
+                })
+                .setNeutralButton(weather.fahrenheit() ? "Use \u00b0C" : "Use \u00b0F", (d, w) -> {
+                    weather.setFahrenheit(!weather.fahrenheit());
+                    weather.refresh(line -> updateGreeting());
+                });
+        if (weather.enabled()) b.setNegativeButton("Turn off", (d, w) -> {
+            weather.clear();
+            updateGreeting();
+        });
+        b.show();
     }
 
     private void showLayoutOptions() {

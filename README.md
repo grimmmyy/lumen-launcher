@@ -27,9 +27,19 @@ them, and stays smooth on cheap hardware.
 - **Feels like evening in the evening**: the backdrop takes a light warm tint in the morning, amber in the
   evening and a darker blue at night (Layout → Adapt colors to time of day).
 - **Inter typeface**, and optional interface sounds (off by default; TVs often delay HDMI audio).
+- **Ambient mode**: after a few idle minutes on Home (3 by default), the rows fade away and the background
+  drifts slowly behind a large clock, the date, the weather and what's playing. Any key brings Home back
+  (and does nothing else). The drift is updated 10 times a second, and the text moves a little every
+  minute so nothing stays in one place on the screen.
+- **Generated backgrounds**: Aurora, Dusk, Ocean and Geometry, drawn on the TV (nothing downloaded), with
+  a new arrangement every day. Lumen settings → Background. Your own wallpapers still come first.
+- **Weather (optional)**: type your city once (Lumen settings → Weather) and the temperature appears next
+  to the greeting and in ambient mode.
 - **Focus memory**: each row returns to the tile you left it on; Back and Home return to the top.
 - **Setup and health**: one screen shows whether the Home button, fast scrolling code and wallpapers are set up, with the fix for each; one script sets it all up.
-- **No ads, no sponsored rows, no account, no network calls** (except poster images for Continue Watching).
+- **No ads, no sponsored rows, no account, no tracking.** Network use is limited to poster images for
+  Continue Watching and, only if you turn it on, the weather from [Open-Meteo](https://open-meteo.com)
+  (your city name once, to find it, then its coordinates every 30 minutes while Lumen is on screen).
 
 ## Performance
 
@@ -222,7 +232,7 @@ and Google TV devices where apps publish to Watch Next.
 | Permission | Why |
 |---|---|
 | `QUERY_ALL_PACKAGES` | List your installed apps |
-| `INTERNET` | Poster images for Continue Watching only |
+| `INTERNET` | Poster images for Continue Watching, and weather if you turn it on |
 | `READ_EPG_DATA` | Read Continue Watching (not grantable on Fire OS) |
 | `READ_EXTERNAL_STORAGE` / `READ_MEDIA_IMAGES` | Optional: your wallpapers in `/sdcard/Lumen/wallpapers` |
 | Accessibility service | Optional: make the Home button open Lumen (see above) |
