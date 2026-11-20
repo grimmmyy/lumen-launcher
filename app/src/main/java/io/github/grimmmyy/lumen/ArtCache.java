@@ -45,7 +45,7 @@ final class ArtCache {
         void onArt(Bitmap art); // main thread; null if the app vanished
     }
 
-    private static final int VERSION = 1; // bump when rendering changes
+    private static final int VERSION = 2; // bump when rendering changes
     private static final int DEFAULT_COLOR = 0xFF1B2333;
 
     private final Context ctx;
@@ -196,16 +196,24 @@ final class ArtCache {
         PackageManager pm = ctx.getPackageManager();
         Drawable banner;
         Drawable icon;
+        Drawable plainBackground = null;
         try {
             ActivityInfo ai = pm.getActivityInfo(e.component(), 0);
             banner = ai.loadBanner(pm);
             if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
+            // Some banners are only a color or gradient, with no name or logo (Amazon's
+            // FireTV Troubleshooting is a plain orange gradient): use them as the
+            // background and add the icon and name, or the tile says nothing.
+            if (isPlain(banner)) {
+                plainBackground = banner;
+                banner = null;
+            }
             icon = banner == null ? ai.loadIcon(pm) : null;
         } catch (PackageManager.NameNotFoundException | RuntimeException ex) {
             return null;
         }
 
-        int color = dominantColor(banner != null ? banner : icon);
+        int color = dominantColor(banner != null ? banner : plainBackground != null ? plainBackground : icon);
         colors.edit().putInt(e.pkg + "@" + e.updated, color).apply();
         synchronized (colorMemo) {
             colorMemo.put(e.pkg + "@" + e.updated, color);
@@ -219,9 +227,18 @@ final class ArtCache {
             banner.setBounds(0, 0, w, h);
             banner.draw(c);
         } else {
-            Paint bg = new Paint();
-            bg.setShader(new LinearGradient(0, 0, 0, h, lighten(color, 0.10f), darken(color, 0.25f), Shader.TileMode.CLAMP));
-            c.drawRect(0, 0, w, h, bg);
+            if (plainBackground != null) {
+                plainBackground.setBounds(0, 0, w, h);
+                plainBackground.draw(c);
+                // The fill may be bright: shade the lower half so the white name reads.
+                Paint shade = new Paint();
+                shade.setShader(new LinearGradient(0, h * 0.4f, 0, h, 0x00000000, 0x66000000, Shader.TileMode.CLAMP));
+                c.drawRect(0, h * 0.4f, w, h, shade);
+            } else {
+                Paint bg = new Paint();
+                bg.setShader(new LinearGradient(0, 0, 0, h, lighten(color, 0.10f), darken(color, 0.25f), Shader.TileMode.CLAMP));
+                c.drawRect(0, 0, w, h, bg);
+            }
             int size = Math.round(h * 0.42f);
             int left = (w - size) / 2;
             int top = Math.round(h * 0.17f);
@@ -245,6 +262,13 @@ final class ArtCache {
         new Canvas(out).drawRoundRect(new RectF(0, 0, w, h), radius, radius, p);
         content.recycle();
         return out;
+    }
+
+    /** A banner that is only a fill: a color or a gradient shape, nothing to read. */
+    static boolean isPlain(Drawable d) {
+        return d instanceof android.graphics.drawable.ColorDrawable
+                || d instanceof android.graphics.drawable.GradientDrawable
+                || d instanceof android.graphics.drawable.ShapeDrawable;
     }
 
     /** Averages the opaque pixels, then keeps the result dark enough for white text. */

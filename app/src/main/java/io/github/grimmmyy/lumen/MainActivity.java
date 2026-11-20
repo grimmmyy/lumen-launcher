@@ -193,6 +193,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         if (f instanceof TileView) onTileFocused((TileView) f);
         refresh();
         main.postDelayed(markStable, 5_000);
+        // First run: show Setup once, so the Home button doesn't stay off unnoticed.
+        if (!prefs.setupShown() && !isHomeWatcherEnabled()) main.postDelayed(this::openSetup, 1_500);
         // Art trimmed while away is reloaded in the background, after the first frames.
         main.postDelayed(rewarm, 700);
     }
@@ -804,7 +806,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private void showLumenSettings() {
         boolean watcherOn = isHomeWatcherEnabled();
         String[] items = {
-                "Home button: " + (watcherOn ? "On" : "Off — how to turn on"),
+                "Setup and health" + (watcherOn ? "" : "  ·  Home button is off"),
                 "Layout",
                 "Hidden apps (" + prefs.hidden().size() + ")",
                 "Wallpapers",
@@ -815,7 +817,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         dialog().setTitle("Lumen " + BuildConfigHelper.versionName(this))
                 .setItems(items, (d, which) -> {
                     switch (which) {
-                        case 0: showHomeButtonHelp(watcherOn); break;
+                        case 0: openSetup(); break;
                         case 1: showLayoutOptions(); break;
                         case 2: showHiddenApps(); break;
                         case 3: showWallpaperHelp(); break;
@@ -858,20 +860,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                 .show();
     }
 
-    private void showHomeButtonHelp(boolean on) {
-        String component = getPackageName() + "/" + HomeWatcherService.class.getName();
-        String msg = on
-                ? "The Home button opens Lumen. To turn it off, run:\n\n"
-                  + "adb shell settings put secure enabled_accessibility_services \"\""
-                : "Fire TV hides the setting for this, so turn it on from a computer with ADB:\n\n"
-                  + "adb shell settings put secure enabled_accessibility_services " + component + "\n"
-                  + "adb shell settings put secure accessibility_enabled 1";
-        dialog().setTitle("Home button")
-                .setMessage(msg)
-                .setPositiveButton("OK", null)
-                .setNeutralButton("Accessibility settings", (d, w) ->
-                        openSetting(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                .show();
+    private void openSetup() {
+        prefs.setSetupShown();
+        launch(new Intent(this, SetupActivity.class));
     }
 
     private void showHiddenApps() {

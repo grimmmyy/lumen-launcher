@@ -43,6 +43,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SetupActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|uiMode" />
+
         <service
             android:name=".HomeWatcherService"
             android:exported="false"

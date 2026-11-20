@@ -91,6 +91,16 @@ final class Prefs {
 
     private static final String KEY_LARGE = "large_tiles";
 
+    private static final String KEY_SETUP_SHOWN = "setup_shown";
+
+    boolean setupShown() {
+        return sp.getBoolean(KEY_SETUP_SHOWN, false);
+    }
+
+    void setSetupShown() {
+        sp.edit().putBoolean(KEY_SETUP_SHOWN, true).apply();
+    }
+
     boolean largeTiles() {
         return sp.getBoolean(KEY_LARGE, false);
     }

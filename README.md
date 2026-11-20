@@ -18,6 +18,7 @@ them, and stays smooth on cheap hardware.
 - **Always clear where you are**: the focused tile lifts with a soft shadow and a ring drawn
   outside it (visible even on white artwork), and the title of the row you're in brightens.
 - **Focus memory**: each row returns to the tile you left it on; Back and Home return to the top.
+- **Setup and health**: one screen shows whether the Home button, fast scrolling code and wallpapers are set up, with the fix for each; one script sets it all up.
 - **No ads, no sponsored rows, no account, no network calls** (except poster images for Continue Watching).
 
 ## Performance
@@ -89,24 +90,43 @@ How:
 ## Install (Fire TV)
 
 1. On the Fire TV: Settings → My Fire TV → Developer options → turn on **ADB debugging** and **Apps from unknown sources**.
-2. From a computer with [ADB](https://developer.android.com/tools/releases/platform-tools):
+2. Get `lumen.apk` from [Releases](../../releases) (or build it, below) and, on a computer with
+   [ADB](https://developer.android.com/tools/releases/platform-tools), run the setup script from this repository:
+
+```powershell
+./tools/setup.ps1 -Device <fire-tv-ip> -Apk lumen.apk     # Windows
+```
+
+```sh
+./tools/setup.sh <fire-tv-ip> lumen.apk                   # macOS, Linux
+```
+
+It installs Lumen, makes the Home button open it (keeping any other accessibility services you use),
+lets it read your wallpapers, then opens Lumen and compiles it ahead of time. Choose **Allow** if the
+TV asks about the computer. It's safe to run again, for example after an update.
+
+On the TV, **Lumen → Setup and health** (Quick row → Lumen) shows the status of each step and the
+command for anything that's missing.
+
+Why a computer: Fire TV hides the settings Lumen needs, and Fire OS 8 refuses ADB connections made
+from the TV itself (an app connecting to the TV's own ADB is disconnected immediately), so this can't
+be done from Lumen.
+
+<details><summary>The same steps by hand</summary>
 
 ```sh
 adb connect <fire-tv-ip>:5555
 adb install -r lumen.apk
-```
-
-Get `lumen.apk` from [Releases](../../releases), or build it yourself (below).
-
-3. Optional, for the smoothest first day: open Lumen, wait about 10 seconds, then run
-
-```sh
+adb shell settings put secure enabled_accessibility_services io.github.grimmmyy.lumen/io.github.grimmmyy.lumen.HomeWatcherService
+adb shell settings put secure accessibility_enabled 1
+# open Lumen, wait about 10 seconds, then:
 adb shell cmd package compile -m speed-profile -f io.github.grimmmyy.lumen
 ```
 
-Android normally compiles Lumen's scrolling code ahead of time only during idle maintenance
-(often overnight). Until then, after each install or update, that code is compiled while you
-scroll, and the first scrolls can stutter on a Fire TV Stick. This does it right away.
+The accessibility command **replaces** the list of enabled accessibility services; the setup script
+adds to it instead. Without the compile step, Android compiles Lumen's scrolling code ahead of time
+during idle maintenance (often overnight); until then the first scrolls can stutter.
+</details>
 
 > **Check your model.** Some newer Fire TV devices (for example Fire TV Stick 4K Select and
 > Fire TV Stick HD 2026) run Vega OS, which does not run Android apps. Lumen needs a Fire OS
@@ -119,17 +139,7 @@ protected. Lumen does not remove or disable anything. Instead, a small accessibi
 when the Amazon home screen appears (Home button, boot, wake from standby) and opens Lumen over it.
 It only sees which screen opened, only for the Amazon launcher, and cannot read screen content.
 
-Fire TV hides the setting, so turn it on with ADB:
-
-```sh
-adb shell settings put secure enabled_accessibility_services io.github.grimmmyy.lumen/io.github.grimmmyy.lumen.HomeWatcherService
-adb shell settings put secure accessibility_enabled 1
-```
-
-> The first command **replaces** the list of enabled accessibility services. If you already use
-> others, check with `adb shell settings get secure enabled_accessibility_services` and join them with `:`.
-
-To undo it:
+Fire TV hides the setting; the setup script above turns it on. To undo it:
 
 ```sh
 adb shell settings put secure enabled_accessibility_services ""
@@ -144,7 +154,7 @@ reset (hold **Back + Right** on the remote for 10 seconds) always restores the s
 > **Force stop turns it off.** Android removes an app's accessibility service from the enabled list
 > whenever the app is force-stopped (Settings → Applications → Lumen → Force stop, or `am force-stop`).
 > Updating Lumen with `adb install -r` keeps it. If the Home button goes back to the Amazon home screen,
-> run the two commands above again.
+> run the setup script again.
 
 > **Tip: leave "Don't keep activities" off.** Some "speed up your Fire Stick" guides turn on this
 > developer option. It destroys every app's screen as soon as you leave it, so each return (to Lumen,
