@@ -15,6 +15,9 @@ them, and stays smooth on cheap hardware.
 - **Groups**: make your own rows ("Kids", "Music", "Games"): Menu on any app → Add to a group. Apps in a
   group leave the Apps grid; groups can be renamed and reordered from the same menu.
 - **New badge** on apps installed or updated in the last three days that you haven't opened yet.
+- **Profiles**: each person gets their own Top Shelf, hidden apps, Recent row and background, and the
+  greeting says their name. Lumen settings → Profile. With more than one profile, Lumen asks "Who's
+  watching?" when the TV wakes (can be turned off).
 - **Apps**: everything else in a grid. Hide anything you don't want to see.
 - **Quick**: network status (Wi-Fi strength or Ethernet), display & sound, remotes, a **sleep timer**
   (pauses what's playing, then puts the TV to sleep), app management with free space, and settings.

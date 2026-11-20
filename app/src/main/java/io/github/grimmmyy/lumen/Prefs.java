@@ -40,36 +40,36 @@ final class Prefs {
     }
 
     List<String> favorites() {
-        String raw = sp.getString(KEY_FAVORITES, "");
+        String raw = sp.getString(pk(KEY_FAVORITES), "");
         List<String> out = new ArrayList<>();
         if (!TextUtils.isEmpty(raw)) out.addAll(Arrays.asList(raw.split(",")));
         return out;
     }
 
     void setFavorites(List<String> pkgs) {
-        sp.edit().putString(KEY_FAVORITES, TextUtils.join(",", pkgs)).apply();
+        sp.edit().putString(pk(KEY_FAVORITES), TextUtils.join(",", pkgs)).apply();
     }
 
     /** First run only: fill the Top Shelf with whichever default apps are installed. */
     void seedFavoritesIfNeeded(Set<String> installed) {
-        if (sp.getBoolean(KEY_SEEDED, false)) return;
+        if (sp.getBoolean(pk(KEY_SEEDED), false)) return;
         List<String> seed = new ArrayList<>();
         for (String p : DEFAULT_FAVORITES) {
             if (installed.contains(p)) seed.add(p);
         }
-        sp.edit().putString(KEY_FAVORITES, TextUtils.join(",", seed)).putBoolean(KEY_SEEDED, true).apply();
+        sp.edit().putString(pk(KEY_FAVORITES), TextUtils.join(",", seed)).putBoolean(pk(KEY_SEEDED), true).apply();
     }
 
     Set<String> hidden() {
-        return new HashSet<>(sp.getStringSet(KEY_HIDDEN, new HashSet<>()));
+        return new HashSet<>(sp.getStringSet(pk(KEY_HIDDEN), new HashSet<>()));
     }
 
     void setHidden(Set<String> pkgs) {
-        sp.edit().putStringSet(KEY_HIDDEN, new HashSet<>(pkgs)).apply();
+        sp.edit().putStringSet(pk(KEY_HIDDEN), new HashSet<>(pkgs)).apply();
     }
 
     void resetFavorites() {
-        sp.edit().remove(KEY_FAVORITES).putBoolean(KEY_SEEDED, false).apply();
+        sp.edit().remove(pk(KEY_FAVORITES)).putBoolean(pk(KEY_SEEDED), false).apply();
     }
 
     /** Lets the user open the Fire TV home on purpose without Lumen jumping back in. */
@@ -159,6 +159,90 @@ final class Prefs {
         return null;
     }
 
+    // ---- Profiles ------------------------------------------------------------
+    // Each profile has its own Top Shelf, hidden apps, Recent and background.
+    // Profile 0 uses the original keys, so existing setups carry over as is.
+
+    static final class Profile {
+        final int id;
+        final String name;
+
+        Profile(int id, String name) {
+            this.id = id;
+            this.name = name;
+        }
+    }
+
+    /** A per-profile key: unchanged for profile 0. */
+    private String pk(String base) {
+        int id = currentProfile();
+        return id == 0 ? base : base + "@" + id;
+    }
+
+    int currentProfile() {
+        return sp.getInt("profile", 0);
+    }
+
+    void setCurrentProfile(int id) {
+        sp.edit().putInt("profile", id).apply();
+    }
+
+    List<Profile> profiles() {
+        List<Profile> out = new ArrayList<>();
+        String raw = sp.getString("profiles", "0:Me");
+        for (String line : raw.split("\n")) {
+            int c = line.indexOf(':');
+            if (c > 0) out.add(new Profile(Integer.parseInt(line.substring(0, c)), line.substring(c + 1)));
+        }
+        return out;
+    }
+
+    private void saveProfiles(List<Profile> list) {
+        StringBuilder b = new StringBuilder();
+        for (Profile p : list) b.append(b.length() == 0 ? "" : "\n").append(p.id).append(':').append(p.name);
+        sp.edit().putString("profiles", b.toString()).apply();
+    }
+
+    String profileName() {
+        for (Profile p : profiles()) if (p.id == currentProfile()) return p.name;
+        return "Me";
+    }
+
+    int addProfile(String name) {
+        List<Profile> list = profiles();
+        int id = 0;
+        for (Profile p : list) id = Math.max(id, p.id);
+        list.add(new Profile(++id, name));
+        saveProfiles(list);
+        return id;
+    }
+
+    void renameProfile(int id, String name) {
+        List<Profile> list = profiles();
+        for (int i = 0; i < list.size(); i++) if (list.get(i).id == id) list.set(i, new Profile(id, name));
+        saveProfiles(list);
+    }
+
+    void removeProfile(int id) {
+        if (id == 0) return;
+        List<Profile> list = profiles();
+        list.removeIf(p -> p.id == id);
+        saveProfiles(list);
+        String s = "@" + id;
+        SharedPreferences.Editor e = sp.edit();
+        for (String k : new ArrayList<>(sp.getAll().keySet())) if (k.endsWith(s)) e.remove(k);
+        if (currentProfile() == id) e.putInt("profile", 0);
+        e.apply();
+    }
+
+    boolean askOnWake() {
+        return sp.getBoolean("ask_profile_on_wake", true);
+    }
+
+    void setAskOnWake(boolean on) {
+        sp.edit().putBoolean("ask_profile_on_wake", on).apply();
+    }
+
     int ambientMinutes() {
         return sp.getInt("ambient_min", 3);
     }
@@ -168,11 +252,11 @@ final class Prefs {
     }
 
     String backgroundStyle() {
-        return sp.getString("bg_style", ArtGen.NONE);
+        return sp.getString(pk("bg_style"), ArtGen.NONE);
     }
 
     void setBackgroundStyle(String s) {
-        sp.edit().putString("bg_style", s).apply();
+        sp.edit().putString(pk("bg_style"), s).apply();
     }
 
     boolean largeTiles() {
@@ -193,7 +277,7 @@ final class Prefs {
 
     /** Most recently launched first. Tracked by Lumen itself: no usage-access permission needed. */
     List<String> recents() {
-        String raw = sp.getString(KEY_RECENTS, "");
+        String raw = sp.getString(pk(KEY_RECENTS), "");
         List<String> out = new ArrayList<>();
         if (!TextUtils.isEmpty(raw)) out.addAll(Arrays.asList(raw.split(",")));
         return out;
@@ -204,7 +288,7 @@ final class Prefs {
         r.remove(pkg);
         r.add(0, pkg);
         while (r.size() > MAX_RECENTS) r.remove(r.size() - 1);
-        sp.edit().putString(KEY_RECENTS, TextUtils.join(",", r))
+        sp.edit().putString(pk(KEY_RECENTS), TextUtils.join(",", r))
                 .putLong("launched:" + pkg, System.currentTimeMillis())
                 .apply();
     }
@@ -216,7 +300,7 @@ final class Prefs {
 
     void forgetRecent(String pkg) {
         List<String> r = recents();
-        if (r.remove(pkg)) sp.edit().putString(KEY_RECENTS, TextUtils.join(",", r)).apply();
+        if (r.remove(pkg)) sp.edit().putString(pk(KEY_RECENTS), TextUtils.join(",", r)).apply();
     }
 
     // ---- Crash guard --------------------------------------------------------

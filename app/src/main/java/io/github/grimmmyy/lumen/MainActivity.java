@@ -222,6 +222,10 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         if (f instanceof TileView) onTileFocused((TileView) f);
         refresh();
         main.postDelayed(markStable, 5_000);
+        if (LumenApp.screenJustOn) {
+            LumenApp.screenJustOn = false;
+            if (prefs.profiles().size() > 1 && prefs.askOnWake()) main.postDelayed(() -> showProfiles(true), 400);
+        }
         scheduleAmbient();
         weather.refresh(line -> updateGreeting());
         // First run: show Setup once, so the Home button doesn't stay off unnoticed.
@@ -838,7 +842,12 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         }
     }
 
-    private static String greeting() {
+    private String greeting() {
+        String g = greetingBase();
+        return prefs != null && prefs.profiles().size() > 1 ? g + ", " + prefs.profileName() : g;
+    }
+
+    private static String greetingBase() {
         int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
         if (h >= 5 && h < 12) return "Good morning";
         if (h >= 12 && h < 17) return "Good afternoon";
@@ -1206,6 +1215,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         boolean watcherOn = isHomeWatcherEnabled();
         String[] items = {
                 "Setup and health" + (watcherOn ? "" : "  ·  Home button is off"),
+                "Profile: " + prefs.profileName(),
                 "Layout",
                 "Background: " + ArtGen.LABELS[Math.max(0, java.util.Arrays.asList(ArtGen.STYLES).indexOf(prefs.backgroundStyle()))],
                 "Ambient mode: " + (prefs.ambientMinutes() == 0 ? "Off" : "after " + prefs.ambientMinutes() + " min"),
@@ -1220,28 +1230,88 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                 .setItems(items, (d, which) -> {
                     switch (which) {
                         case 0: openSetup(); break;
-                        case 1: showLayoutOptions(); break;
-                        case 2: showBackgroundStyles(); break;
-                        case 3: showAmbientOptions(); break;
-                        case 4: showWeatherOptions(); break;
-                        case 5: showHiddenApps(); break;
-                        case 6: showWallpaperHelp(); break;
-                        case 7:
+                        case 1: showProfiles(false); break;
+                        case 2: showLayoutOptions(); break;
+                        case 3: showBackgroundStyles(); break;
+                        case 4: showAmbientOptions(); break;
+                        case 5: showWeatherOptions(); break;
+                        case 6: showHiddenApps(); break;
+                        case 7: showWallpaperHelp(); break;
+                        case 8:
                             images.clear();
                             backdrop.invalidate();
                             AppCatalog.markDirty();
                             signature = null;
                             refresh();
                             break;
-                        case 8:
+                        case 9:
                             prefs.resetFavorites();
                             rebuild();
                             break;
-                        case 9: openFireHome(); break;
+                        case 10: openFireHome(); break;
                         default: break;
                     }
                 })
                 .show();
+    }
+
+    /**
+     * Profiles: switch, add, rename, remove. With {@code wake}, it's the short
+     * "Who's watching?" list shown when the TV wakes.
+     */
+    private void showProfiles(boolean wake) {
+        List<Prefs.Profile> list = prefs.profiles();
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        int current = prefs.currentProfile();
+        for (Prefs.Profile p : list) {
+            labels.add((p.id == current ? "\u2713  " : "     ") + p.name);
+            actions.add(() -> switchProfile(p.id));
+        }
+        if (!wake) {
+            labels.add("Add a profile\u2026");
+            actions.add(() -> askName("New profile", "", name -> switchProfile(prefs.addProfile(name))));
+            labels.add("Rename \u201c" + prefs.profileName() + "\u201d\u2026");
+            actions.add(() -> askName("Rename profile", prefs.profileName(), name -> {
+                prefs.renameProfile(prefs.currentProfile(), name);
+                updateGreeting();
+            }));
+            if (current != 0) {
+                labels.add("Remove \u201c" + prefs.profileName() + "\u201d");
+                actions.add(() -> {
+                    prefs.removeProfile(current);
+                    switchProfile(0);
+                });
+            }
+            if (list.size() > 1) {
+                labels.add("Ask who's watching when the TV wakes: " + (prefs.askOnWake() ? "On" : "Off"));
+                actions.add(() -> prefs.setAskOnWake(!prefs.askOnWake()));
+            }
+        }
+        dialog().setTitle(wake ? "Who's watching?" : "Profiles")
+                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
+                .show();
+    }
+
+    private void switchProfile(int id) {
+        prefs.setCurrentProfile(id);
+        Backdrop.style = prefs.backgroundStyle();
+        backdrop.invalidate();
+        signature = null;
+        apps = AppCatalog.quick(this) != null ? AppCatalog.quick(this) : apps;
+        home.scrollToPosition(0);
+        rebuild();
+        updateGreeting();
+        // Start the new profile on its Top Shelf (not on whatever tile the menu was
+        // opened from), once the rebuilt rows have been laid out.
+        home.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                home.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                home.post(MainActivity.this::focusShelf);
+            }
+        });
+        home.requestLayout();
     }
 
     private void showBackgroundStyles() {

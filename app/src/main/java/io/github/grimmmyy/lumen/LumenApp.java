@@ -38,9 +38,18 @@ public class LumenApp extends Application {
         return art;
     }
 
+    /** Set when the screen turns on; Home asks "Who's watching?" once (see MainActivity). */
+    static volatile boolean screenJustOn;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        registerReceiver(new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, android.content.Intent i) {
+                screenJustOn = true;
+            }
+        }, new android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_ON));
         final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
             try {
