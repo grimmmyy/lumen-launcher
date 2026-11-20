@@ -55,6 +55,9 @@ if ($current -and $current -ne 'null' -and $current -match [regex]::Escape($serv
 Step 'Now Playing: let Lumen see media players (not notifications)'
 Shell "cmd notification allow_listener $pkg/$pkg.NowPlayingService" | Out-Null
 
+Step 'Recent from anywhere: usage access (when apps were last used, app sizes)'
+Shell "appops set $pkg GET_USAGE_STATS allow" | Out-Null
+
 Step 'Wallpapers: allow Lumen to read /sdcard/Lumen/wallpapers'
 Shell "pm grant $pkg android.permission.READ_EXTERNAL_STORAGE" | Out-Null
 

@@ -80,6 +80,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     private List<AppEntry> apps = Collections.emptyList();
     private List<WatchNext.Item> watch = Collections.emptyList();
+    /** Package → last used, from usage access (empty without it). */
+    private Map<String, Long> usage = Collections.emptyMap();
     private final Map<String, AppEntry> byPkg = new HashMap<>();
     private String signature;
     private String firstShelfKey;
@@ -385,11 +387,13 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
             List<AppEntry> current = scanned != null ? scanned : AppCatalog.quick(this);
             List<WatchNext.Item> w = checkSelfPermission(EPG_PERMISSION) == PackageManager.PERMISSION_GRANTED
                     ? WatchNext.load(this) : Collections.emptyList();
+            Map<String, Long> used = Usage.lastUsed(this);
             if (scanned != null) art.prune(scanned);
             main.post(() -> {
                 if (isDestroyed()) return;
                 if (current != null) apps = current;
                 watch = w;
+                usage = used;
                 rebuild();
             });
         });
@@ -406,7 +410,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         for (String p : prefs.favorites()) if (byPkg.containsKey(p) && !hidden.contains(p)) favs.add(p);
         Set<String> favSet = new HashSet<>(favs);
         List<String> recents = new ArrayList<>();
-        for (String p : prefs.recents()) {
+        Set<String> grouped = new HashSet<>();
+        for (String g : prefs.groups()) grouped.addAll(prefs.groupApps(g));
+        for (String p : recentOrder()) {
             if (recents.size() >= MAX_RECENT_TILES) break;
             if (byPkg.containsKey(p) && !hidden.contains(p) && !favSet.contains(p)) recents.add(p);
         }
@@ -414,7 +420,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         boolean showApps = prefs.rowEnabled(Prefs.ROW_APPS);
         boolean showQuick = prefs.rowEnabled(Prefs.ROW_QUICK);
 
-        String sig = signature(favs, hidden, recents, showRecent, showApps, showQuick)
+        StringBuilder gsig = new StringBuilder();
+        for (String g : prefs.groups()) gsig.append(g).append('=').append(prefs.groupApps(g)).append(';');
+        String sig = signature(favs, hidden, recents, showRecent, showApps, showQuick) + gsig + quickStatus()
                 + (playing != null && prefs.rowEnabled(Prefs.ROW_NOW));
         if (sig.equals(signature)) return;
         signature = sig;
@@ -447,6 +455,17 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
             items.add(HomeAdapter.Item.row("cw", cw, shelfW, shelfH));
         }
 
+        for (String g : prefs.groups()) {
+            List<Tile> gt = new ArrayList<>();
+            for (String p : prefs.groupApps(g)) {
+                AppEntry a = byPkg.get(p);
+                if (a != null && !hidden.contains(p)) gt.add(appTile(a, "grp:" + g + ":"));
+            }
+            if (gt.isEmpty()) continue;
+            items.add(HomeAdapter.Item.title("grp:" + g, g));
+            items.add(HomeAdapter.Item.row("grp:" + g, gt, smallW, smallH));
+        }
+
         if (showRecent && !recents.isEmpty()) {
             List<Tile> rec = new ArrayList<>();
             for (String p : recents) rec.add(appTile(byPkg.get(p), "rec:"));
@@ -457,7 +476,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         if (showApps) {
             List<HomeAdapter.Item> grid = new ArrayList<>();
             for (AppEntry a : apps) {
-                if (hidden.contains(a.pkg) || favSet.contains(a.pkg)) continue;
+                if (hidden.contains(a.pkg) || favSet.contains(a.pkg) || grouped.contains(a.pkg)) continue;
                 grid.add(HomeAdapter.Item.tile(appTile(a, "app:"), gridW, gridH));
             }
             int copies = stressCopies();
@@ -599,6 +618,51 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         home.post(this::focusShelf);
     }
 
+    /** Recently used first: Lumen's own launches, plus apps opened elsewhere when usage access is on. */
+    private List<String> recentOrder() {
+        Map<String, Long> when = new HashMap<>();
+        for (String p : prefs.recents()) when.put(p, Math.max(1, prefs.lastLaunch(p)));
+        for (Map.Entry<String, Long> e : usage.entrySet()) {
+            String p = e.getKey();
+            if (p.equals(getPackageName()) || p.equals(FIRE_LAUNCHER) || !byPkg.containsKey(p)) continue;
+            Long t = when.get(p);
+            if (t == null || e.getValue() > t) when.put(p, e.getValue());
+        }
+        List<String> out = new ArrayList<>(when.keySet());
+        Collections.sort(out, (x, y) -> Long.compare(when.get(y), when.get(x)));
+        return out;
+    }
+
+    /** Connected over Wi-Fi (with signal strength) or Ethernet, or offline. */
+    private String networkStatus() {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            if (nc == null) return "Offline";
+            if (nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) return "Ethernet";
+            if (nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) {
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getApplicationContext()
+                        .getSystemService(WIFI_SERVICE);
+                int level = android.net.wifi.WifiManager.calculateSignalLevel(wm.getConnectionInfo().getRssi(), 4);
+                return "Wi-Fi  \u00b7  " + new String[]{"weak", "fair", "good", "strong"}[Math.max(0, Math.min(3, level))];
+            }
+            return "Connected";
+        } catch (RuntimeException e) {
+            return "Network";
+        }
+    }
+
+    private String storageStatus() {
+        android.os.StatFs fs = new android.os.StatFs(Environment.getDataDirectory().getPath());
+        long free = fs.getAvailableBytes();
+        return (free >= 1L << 30 ? String.format(java.util.Locale.US, "%.1f GB", free / (double) (1L << 30))
+                : (free >> 20) + " MB") + " free";
+    }
+
+    private String quickStatus() {
+        return networkStatus() + "|" + storageStatus() + "|" + SleepTimer.minutesLeft();
+    }
+
     // ---- Tiles --------------------------------------------------------------
 
     private Tile appTile(AppEntry a, String prefix) {
@@ -610,6 +674,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         t.backdropPkg = a.pkg;
         t.onClick = () -> launchApp(a);
         t.onLongClick = () -> showAppMenu(a, prefix);
+        // New or just updated, and not opened since: a small NEW badge.
+        long seen = Math.max(prefs.lastLaunch(a.pkg), usage.containsKey(a.pkg) ? usage.get(a.pkg) : 0L);
+        if (System.currentTimeMillis() - a.updated < 3 * 86_400_000L && seen < a.updated) t.badge = "NEW";
         return t;
     }
 
@@ -661,7 +728,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     private List<Tile> quickTiles() {
         List<Tile> q = new ArrayList<>();
-        q.add(iconTile(textTile("q:wifi", "Wi-Fi", "Network", 0xFF1F3A5C,
+        q.add(iconTile(textTile("q:wifi", "Network", networkStatus(), 0xFF1F3A5C,
                 () -> openSetting(Settings.ACTION_WIFI_SETTINGS)), R.drawable.ic_q_wifi));
         q.add(iconTile(textTile("q:display", "Display & Sound", "Picture, audio", 0xFF33284F,
                 () -> openSetting(Settings.ACTION_DISPLAY_SETTINGS)), R.drawable.ic_q_display));
@@ -669,7 +736,10 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                 // Fire OS has no Bluetooth settings action; its Controllers page covers remotes.
                 () -> openSetting("android.settings.CONTROLLERS_SETTINGS", Settings.ACTION_BLUETOOTH_SETTINGS)),
                 R.drawable.ic_q_remote));
-        q.add(iconTile(textTile("q:apps", "Manage apps", "Storage, uninstall", 0xFF4A3A1F,
+        int left = SleepTimer.minutesLeft();
+        q.add(iconTile(textTile("q:sleep", "Sleep timer", left > 0 ? "In " + left + " min" : "Off", 0xFF2B2A4A,
+                this::showSleepTimer), R.drawable.ic_q_sleep));
+        q.add(iconTile(textTile("q:apps", "Manage apps", storageStatus(), 0xFF4A3A1F,
                 () -> openSetting(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)), R.drawable.ic_q_apps));
         q.add(iconTile(textTile("q:settings", "Settings", "All Fire TV settings", 0xFF2A2F3A,
                 () -> openSetting(Settings.ACTION_SETTINGS)), R.drawable.ic_q_settings));
@@ -978,6 +1048,31 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                 rebuild();
             });
         }
+        String group = prefs.groupOf(a.pkg);
+        if (group == null) {
+            labels.add("Add to a group\u2026");
+            actions.add(() -> chooseGroup(a));
+        } else {
+            labels.add("Remove from \u201c" + group + "\u201d");
+            actions.add(() -> {
+                List<String> g = prefs.groupApps(group);
+                g.remove(a.pkg);
+                if (g.isEmpty()) prefs.deleteGroup(group);
+                else prefs.setGroupApps(group, g);
+                rebuild();
+            });
+            if (prefix.startsWith("grp:")) {
+                labels.add("Move left in group");
+                actions.add(() -> moveInGroup(group, a.pkg, -1));
+                labels.add("Move right in group");
+                actions.add(() -> moveInGroup(group, a.pkg, 1));
+                labels.add("Rename \u201c" + group + "\u201d\u2026");
+                actions.add(() -> askName("Rename group", group, name -> {
+                    prefs.renameGroup(group, name);
+                    rebuild();
+                }));
+            }
+        }
         if ("rec:".equals(prefix)) {
             labels.add("Remove from Recent");
             actions.add(() -> {
@@ -996,8 +1091,103 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         actions.add(() -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", a.pkg, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
 
-        dialog().setTitle(a.label)
+        TextView title = new TextView(this);
+        title.setPadding(dp(32), dp(22), dp(32), dp(10));
+        title.setTextColor(0xFFFFFFFF);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        title.setTypeface(Fonts.semibold(this));
+        title.setText(appDetails(a, null));
+        dialog().setCustomTitle(title)
                 .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
+                .show();
+        io.execute(() -> {
+            String sizes = Usage.sizes(this, a.pkg);
+            if (sizes != null) main.post(() -> title.setText(appDetails(a, sizes)));
+        });
+    }
+
+    /** Name, then version and last update, then storage use when usage access is on. */
+    private CharSequence appDetails(AppEntry a, String sizes) {
+        String version = "";
+        try {
+            version = "Version " + getPackageManager().getPackageInfo(a.pkg, 0).versionName + "  \u00b7  ";
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // just removed
+        }
+        String updated = "Updated " + android.text.format.DateUtils.getRelativeTimeSpanString(a.updated,
+                System.currentTimeMillis(), android.text.format.DateUtils.DAY_IN_MILLIS);
+        android.text.SpannableStringBuilder b = new android.text.SpannableStringBuilder(a.label);
+        int start = b.length();
+        b.append("\n").append(version).append(updated);
+        if (sizes != null) b.append("\n").append(sizes);
+        b.setSpan(new android.text.style.AbsoluteSizeSpan(16, true), start, b.length(), 0);
+        b.setSpan(new android.text.style.ForegroundColorSpan(0xB3FFFFFF), start, b.length(), 0);
+        return b;
+    }
+
+    private void chooseGroup(AppEntry a) {
+        List<String> groups = prefs.groups();
+        String[] items = new String[groups.size() + 1];
+        for (int i = 0; i < groups.size(); i++) items[i] = groups.get(i);
+        items[groups.size()] = "New group\u2026";
+        dialog().setTitle("Add " + a.label + " to")
+                .setItems(items, (d, which) -> {
+                    if (which < groups.size()) addToGroup(groups.get(which), a.pkg);
+                    else askName("New group", "", name -> addToGroup(name, a.pkg));
+                })
+                .show();
+    }
+
+    private void addToGroup(String group, String pkg) {
+        List<String> g = prefs.groupApps(group);
+        if (!g.contains(pkg)) g.add(pkg);
+        prefs.setGroupApps(group, g);
+        rebuild();
+    }
+
+    private void moveInGroup(String group, String pkg, int delta) {
+        List<String> g = prefs.groupApps(group);
+        int i = g.indexOf(pkg), j = i + delta;
+        if (i < 0 || j < 0 || j >= g.size()) return;
+        g.set(i, g.get(j));
+        g.set(j, pkg);
+        prefs.setGroupApps(group, g);
+        rebuild();
+    }
+
+    private void askName(String title, String current, java.util.function.Consumer<String> done) {
+        android.widget.EditText name = new android.widget.EditText(this);
+        name.setSingleLine(true);
+        name.setText(current);
+        name.setHint("e.g. Kids, Music, Games");
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        box.setPadding(dp(24), dp(8), dp(24), 0);
+        box.addView(name);
+        dialog().setTitle(title).setView(box)
+                .setPositiveButton("OK", (d, w) -> {
+                    String n = name.getText().toString().trim().replace('\n', ' ').replace(',', ' ');
+                    if (!n.isEmpty()) done.accept(n);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showSleepTimer() {
+        final int[] minutes = {0, 15, 30, 60, 90, -1};
+        String[] labels = {"Off", "In 15 minutes", "In 30 minutes", "In 1 hour", "In 1 hour 30 minutes", "Sleep now"};
+        dialog().setTitle(SleepTimer.minutesLeft() > 0 ? "Sleep timer: " + SleepTimer.minutesLeft() + " min left" : "Sleep timer")
+                .setItems(labels, (d, which) -> {
+                    if (minutes[which] < 0) {
+                        if (!SleepTimer.sleepNow(this)) toast("Needs the Home button service (Lumen > Setup)");
+                        return;
+                    }
+                    SleepTimer.set(this, minutes[which]);
+                    if (minutes[which] > 0 && !isHomeWatcherEnabled()) {
+                        toast("The TV will sleep only if the Home button service is on (Lumen > Setup)");
+                    }
+                    signature = null;
+                    rebuild();
+                })
                 .show();
     }
 

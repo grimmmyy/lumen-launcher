@@ -48,6 +48,14 @@ public class HomeWatcherService extends AccessibilityService {
     private static final long PASS_THROUGH_WAIT_MS = 600;
 
     private Prefs prefs;
+    private static volatile HomeWatcherService instance;
+
+    /** Puts the TV to sleep ("lock screen" global action). False if the service isn't running. */
+    static boolean sleepDevice() {
+        HomeWatcherService s = instance;
+        return s != null && android.os.Build.VERSION.SDK_INT >= 28
+                && s.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
+    }
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable deferredRedirect = this::redirect;
     private boolean redirectPending;
@@ -57,6 +65,7 @@ public class HomeWatcherService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         prefs = new Prefs(this);
+        instance = this;
         Log.i(TAG, "watcher connected");
     }
 
@@ -132,6 +141,7 @@ public class HomeWatcherService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        instance = null;
         cancelPending();
         super.onDestroy();
     }

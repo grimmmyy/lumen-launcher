@@ -10,9 +10,15 @@ them, and stays smooth on cheap hardware.
   tints the background from the artwork, and opens or controls it (Select opens it, Play/Pause on the remote,
   Menu for next and previous). Reads only the player, never your notifications.
 - **Top Shelf**: your apps, large, in the order you choose. Positions never move on their own.
-- **Recent**: apps you opened lately that aren't on the Top Shelf (tracked by Lumen; no usage permission).
+- **Recent**: apps you opened lately that aren't on the Top Shelf. With usage access (the setup script turns
+  it on) this includes apps opened from anywhere, such as Alexa or the Amazon home screen.
+- **Groups**: make your own rows ("Kids", "Music", "Games"): Menu on any app → Add to a group. Apps in a
+  group leave the Apps grid; groups can be renamed and reordered from the same menu.
+- **New badge** on apps installed or updated in the last three days that you haven't opened yet.
 - **Apps**: everything else in a grid. Hide anything you don't want to see.
-- **Quick**: one press to Wi-Fi, display & sound, remotes, app management and settings.
+- **Quick**: network status (Wi-Fi strength or Ethernet), display & sound, remotes, a **sleep timer**
+  (pauses what's playing, then puts the TV to sleep), app management with free space, and settings.
+- **App details**: the app menu shows version, last update and, with usage access, storage used.
 - **Continue Watching** on devices that allow it (see below).
 - **Info band**: a greeting and clock, the focused app's name, when you last opened it, and what the remote buttons do.
 - **Backdrop that follows focus**: a soft blur of the focused app, or your own wallpapers.
@@ -122,7 +128,8 @@ How:
 ```
 
 It installs Lumen, makes the Home button open it (keeping any other accessibility services you use),
-turns on Now Playing, lets it read your wallpapers, then opens Lumen and compiles it ahead of time. Choose **Allow** if the
+turns on Now Playing and usage access, lets it read your wallpapers, then opens Lumen and compiles it
+ahead of time. Choose **Allow** if the
 TV asks about the computer. It's safe to run again, for example after an update.
 
 On the TV, **Lumen → Setup and health** (Quick row → Lumen) shows the status of each step and the
@@ -140,6 +147,7 @@ adb install -r lumen.apk
 adb shell settings put secure enabled_accessibility_services io.github.grimmmyy.lumen/io.github.grimmmyy.lumen.HomeWatcherService
 adb shell settings put secure accessibility_enabled 1
 adb shell cmd notification allow_listener io.github.grimmmyy.lumen/io.github.grimmmyy.lumen.NowPlayingService
+adb shell appops set io.github.grimmmyy.lumen GET_USAGE_STATS allow
 # open Lumen, wait about 10 seconds, then:
 adb shell cmd package compile -m speed-profile -f io.github.grimmmyy.lumen
 ```
@@ -236,6 +244,8 @@ and Google TV devices where apps publish to Watch Next.
 | `READ_EPG_DATA` | Read Continue Watching (not grantable on Fire OS) |
 | `READ_EXTERNAL_STORAGE` / `READ_MEDIA_IMAGES` | Optional: your wallpapers in `/sdcard/Lumen/wallpapers` |
 | Accessibility service | Optional: make the Home button open Lumen (see above) |
+| `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` | Quick → Network: connected or not, Wi-Fi strength (never network names or location) |
+| Usage access (`PACKAGE_USAGE_STATS`) | Optional: Recent includes apps opened from anywhere; app menus show storage used |
 | Notification access (`NowPlayingService`) | Optional: Now Playing. Android only shows apps' media players to a notification listener; Lumen never reads, keeps or shows notifications |
 
 ## Build

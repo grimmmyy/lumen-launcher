@@ -114,6 +114,51 @@ final class Prefs {
         sp.edit().putBoolean(key, on).apply();
     }
 
+    // ---- Groups: user-made rows. "groups" is the ordered list of names; each
+    // group's apps are stored under "group:" + name.
+
+    List<String> groups() {
+        String raw = sp.getString("groups", "");
+        List<String> out = new ArrayList<>();
+        if (!TextUtils.isEmpty(raw)) out.addAll(Arrays.asList(raw.split("\n")));
+        return out;
+    }
+
+    List<String> groupApps(String name) {
+        String raw = sp.getString("group:" + name, "");
+        List<String> out = new ArrayList<>();
+        if (!TextUtils.isEmpty(raw)) out.addAll(Arrays.asList(raw.split(",")));
+        return out;
+    }
+
+    void setGroupApps(String name, List<String> pkgs) {
+        List<String> g = groups();
+        if (!g.contains(name)) g.add(name);
+        sp.edit().putString("groups", TextUtils.join("\n", g)).putString("group:" + name, TextUtils.join(",", pkgs)).apply();
+    }
+
+    void deleteGroup(String name) {
+        List<String> g = groups();
+        g.remove(name);
+        sp.edit().putString("groups", TextUtils.join("\n", g)).remove("group:" + name).apply();
+    }
+
+    void renameGroup(String from, String to) {
+        List<String> g = groups();
+        int i = g.indexOf(from);
+        if (i < 0 || g.contains(to)) return;
+        List<String> apps = groupApps(from);
+        g.set(i, to);
+        sp.edit().putString("groups", TextUtils.join("\n", g)).remove("group:" + from)
+                .putString("group:" + to, TextUtils.join(",", apps)).apply();
+    }
+
+    /** The group an app is in, or null. */
+    String groupOf(String pkg) {
+        for (String g : groups()) if (groupApps(g).contains(pkg)) return g;
+        return null;
+    }
+
     int ambientMinutes() {
         return sp.getInt("ambient_min", 3);
     }

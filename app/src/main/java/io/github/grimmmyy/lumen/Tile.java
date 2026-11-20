@@ -12,6 +12,7 @@ final class Tile {
     String imageUri;     // poster art (Continue Watching)
     int color = 0xFF1B2333;
     float progress;      // 0..1, draws a progress bar when > 0
+    String badge;        // small pill in the corner, e.g. "NEW"
     String backdropPkg;  // whose wallpaper to show when focused
     boolean resetsScroll; // focusing this tile scrolls the page back to the top
     Runnable onClick;

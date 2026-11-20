@@ -171,6 +171,8 @@ final class TileView extends View {
 
         if (art == null || cropArt) drawText(c, w, h);
 
+        if (tile.badge != null) drawBadge(c, w, h, tile.badge);
+
         if (tile.progress > 0f) {
             float barH = Math.max(3f, h * 0.035f);
             float inset = radius;
@@ -222,6 +224,24 @@ final class TileView extends View {
         }
     }
 
+    private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint badgeText = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+
+    /** A small accent pill in the top-right corner. */
+    private void drawBadge(Canvas c, float w, float h, String text) {
+        badgeText.setTextSize(h * 0.085f);
+        badgeText.setTypeface(Fonts.semibold(getContext()));
+        badgeText.setColor(Color.WHITE);
+        badgeText.setLetterSpacing(0.06f);
+        float tw = badgeText.measureText(text);
+        float ph = h * 0.05f, pv = h * 0.03f, m = h * 0.07f;
+        float bh = badgeText.getTextSize() + 2 * pv;
+        float right = w - m, left = right - tw - 2 * ph, top = m;
+        badgePaint.setColor(0xFF3D7BFF);
+        c.drawRoundRect(left, top, right, top + bh, bh / 2f, bh / 2f, badgePaint);
+        c.drawText(text, left + ph, top + pv - badgeText.ascent() * 0.92f, badgeText);
+    }
+
     private void centerCrop(int bw, int bh, float vw, float vh) {
         float scale = Math.max(vw / bw, vh / bh);
         int cw = Math.round(vw / scale);
@@ -259,11 +279,11 @@ final class TileView extends View {
         boolean effects = Motion.effects && !Motion.fast();
         if (gained && effects) {
             // Swing in slightly from the side focus came from, then settle (a
-            // RenderNode transform: no redraw, nearly free for the GPU).
+            // RenderNode transform: no redraw). Only for moves along a row: up
+            // and down scroll the whole page, and a tilted tile on top of that
+            // added render-thread time (measured on a Fire TV Stick).
             if (direction == FOCUS_RIGHT) setRotationY(7f);
             else if (direction == FOCUS_LEFT) setRotationY(-7f);
-            else if (direction == FOCUS_DOWN) setRotationX(-6f);
-            else if (direction == FOCUS_UP) setRotationX(6f);
             startSheen();
         } else if (!gained) {
             stopSheen();

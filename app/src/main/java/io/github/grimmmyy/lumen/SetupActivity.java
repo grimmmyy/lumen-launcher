@@ -115,6 +115,16 @@ public class SetupActivity extends Activity {
                         + "setting, so turn it on from a computer with ADB:",
                         "adb shell cmd notification allow_listener " + pkg + "/" + pkg + ".NowPlayingService")));
 
+        // Usage access
+        boolean usage = Usage.granted(this);
+        c.add(new Check("Recent from anywhere", usage
+                ? "On. Recent includes apps you opened from Alexa or elsewhere, and app menus show storage use."
+                : "Optional: Recent shows only apps opened from Lumen. With usage access it includes apps "
+                + "opened from anywhere, and app menus show storage use.", usage ? OK : INFO, usage ? null : "How",
+                usage ? null : () -> showCommands("Turn on usage access",
+                        "Fire TV hides this setting, so turn it on from a computer with ADB:",
+                        "adb shell appops set " + pkg + " GET_USAGE_STATS allow")));
+
         // Ahead-of-time compile
         if (compiled == null) {
             c.add(new Check("Fast scrolling code", !compileChecked ? "Checking…"
