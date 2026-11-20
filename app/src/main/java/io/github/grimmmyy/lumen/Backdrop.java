@@ -90,9 +90,26 @@ final class Backdrop {
     /**
      * @param seed the tile's own artwork bitmap, used for the blurred backdrop; may be null
      */
+    /** Layout > Adapt to time of day. */
+    static volatile boolean timeOfDay = true;
+
+    /**
+     * A light color wash for the time of day, baked into the backdrop: warm in
+     * the morning, none by day, amber in the evening, deep blue and a little
+     * darker at night. 0 = none.
+     */
+    static int timeTint() {
+        if (!timeOfDay) return 0;
+        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        if (h >= 6 && h < 10) return 0x1CFFB25A;
+        if (h >= 10 && h < 17) return 0;
+        if (h >= 17 && h < 21) return 0x22FF6A3D;
+        return 0x3010183A;
+    }
+
     void request(String pkg, String imageUri, int color, Bitmap seed) {
         final String key = (pkg == null ? "" : pkg) + "|" + (imageUri == null ? "" : imageUri)
-                + "|" + color + "|" + (seed != null);
+                + "|" + color + "|" + (seed != null) + "|" + timeTint();
         schedule(key, () -> start(key, pkg, imageUri, color, seed, false));
     }
 
@@ -101,7 +118,7 @@ final class Backdrop {
      * @param id identifies the artwork, e.g. the track
      */
     void requestArt(String id, int color, Bitmap art) {
-        final String key = "art|" + id + "|" + color + "|" + (art != null);
+        final String key = "art|" + id + "|" + color + "|" + (art != null) + "|" + timeTint();
         schedule(key, () -> start(key, null, null, color, art, true));
     }
 
@@ -218,6 +235,8 @@ final class Backdrop {
         Paint l = new Paint();
         l.setShader(new LinearGradient(0, 0, w * 0.6f, 0, 0x73000000, 0x00000000, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w * 0.6f, h, l);
+        int tint = timeTint();
+        if (tint != 0) c.drawColor(tint);
         return base;
     }
 

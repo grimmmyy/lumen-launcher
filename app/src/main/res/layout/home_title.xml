@@ -3,6 +3,6 @@
     android:layout_width="match_parent" android:layout_height="30dp"
     android:paddingStart="48dp" android:paddingEnd="48dp"
     android:gravity="bottom"
-    android:textColor="#D9FFFFFF" android:textSize="15sp" android:fontFamily="sans-serif-medium"
-    android:letterSpacing="0.02"
+    android:textColor="#D9FFFFFF" android:textSize="15sp" android:fontFamily="@font/inter_semibold"
+    android:letterSpacing="0.01"
     android:importantForAccessibility="yes" android:accessibilityHeading="true" />

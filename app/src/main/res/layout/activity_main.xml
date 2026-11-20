@@ -22,4 +22,20 @@
         android:paddingBottom="64dp"
         android:overScrollMode="never" android:scrollbars="none"
         android:descendantFocusability="afterDescendants" />
+
+    <!-- The focused tile's name, over a soft fade at the top of the screen, shown only
+         while the info band is scrolled away. Not drawn at all while hidden (alpha 0). -->
+    <FrameLayout android:id="@+id/focusBar"
+        android:layout_width="match_parent" android:layout_height="176dp"
+        android:background="@drawable/focus_bar"
+        android:alpha="0" android:translationZ="3dp" android:outlineProvider="none"
+        android:importantForAccessibility="noHideDescendants">
+        <TextView android:id="@+id/focusLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="48dp" android:layout_marginTop="26dp"
+            android:textColor="#FFFFFFFF" android:textSize="26sp"
+            android:fontFamily="@font/inter_semibold" android:letterSpacing="-0.01"
+            android:shadowColor="#80000000" android:shadowRadius="8"
+            android:maxLines="1" android:ellipsize="end" android:maxWidth="1100dp" />
+    </FrameLayout>
 </merge>

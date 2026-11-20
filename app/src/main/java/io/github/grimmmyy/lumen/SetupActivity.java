@@ -257,7 +257,7 @@ public class SetupActivity extends Activity {
         columns.addView(left, new LinearLayout.LayoutParams(0, -1, 0.36f));
         left.addView(text("Lumen", 18, 0x99FFFFFF, false));
         TextView title = text("Setup", 52, Color.WHITE, false);
-        title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        title.setTypeface(Fonts.light(this));
         left.addView(title);
         summary = text("", 20, 0xCCFFFFFF, false);
         summary.setPadding(0, dp(10), dp(40), 0);
@@ -356,7 +356,7 @@ public class SetupActivity extends Activity {
         t.setText(s);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
-        if (medium) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        t.setTypeface(medium ? Fonts.semibold(this) : Fonts.regular(this));
         t.setLayoutParams(new ViewGroup.LayoutParams(-2, -2));
         return t;
     }

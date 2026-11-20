@@ -14,6 +14,7 @@
     android:paddingStart="48dp" android:paddingEnd="48dp" android:paddingTop="26dp">
 
     <TextView android:id="@+id/greeting"
+        android:fontFamily="@font/inter_regular"
         android:layout_width="480dp" android:layout_height="24dp"
         android:layout_alignParentStart="true" android:layout_alignParentTop="true"
         android:layout_marginTop="6dp"
@@ -25,10 +26,11 @@
         android:layout_alignParentEnd="true" android:layout_alignParentTop="true"
         android:format12Hour="h:mm" android:format24Hour="HH:mm"
         android:textColor="#FFFFFFFF" android:textSize="28sp"
-        android:fontFamily="sans-serif-light"
+        android:fontFamily="@font/inter_light"
         android:gravity="center_vertical|end" android:includeFontPadding="false" />
 
     <TextClock android:id="@+id/date"
+        android:fontFamily="@font/inter_regular"
         android:layout_width="320dp" android:layout_height="20dp"
         android:layout_alignParentEnd="true" android:layout_below="@id/clock"
         android:format12Hour="EEEE, MMM d" android:format24Hour="EEEE, MMM d"
@@ -39,12 +41,13 @@
         android:layout_width="match_parent" android:layout_height="54dp"
         android:layout_below="@id/date" android:layout_marginTop="2dp"
         android:textColor="#FFFFFFFF" android:textSize="40sp"
-        android:fontFamily="sans-serif-medium" android:letterSpacing="-0.01"
+        android:fontFamily="@font/inter_semibold" android:letterSpacing="-0.02"
         android:maxLines="1" android:ellipsize="end" android:includeFontPadding="false"
         android:gravity="center_vertical"
         android:shadowColor="#66000000" android:shadowRadius="12" />
 
     <TextView android:id="@+id/heroMeta"
+        android:fontFamily="@font/inter_regular"
         android:layout_width="match_parent" android:layout_height="24dp"
         android:layout_below="@id/heroTitle" android:layout_alignParentStart="true"
         android:layout_toStartOf="@id/heroHint" android:layout_marginEnd="24dp"
@@ -52,6 +55,7 @@
         android:maxLines="1" android:ellipsize="end" android:gravity="center_vertical" />
 
     <TextView android:id="@+id/heroHint"
+        android:fontFamily="@font/inter_regular"
         android:layout_width="340dp" android:layout_height="24dp"
         android:layout_below="@id/heroTitle" android:layout_alignParentEnd="true"
         android:textColor="#80FFFFFF" android:textSize="14sp"

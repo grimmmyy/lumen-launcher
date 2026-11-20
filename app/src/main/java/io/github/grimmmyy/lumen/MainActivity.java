@@ -88,6 +88,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private TextView heroSubtitleView;
     private TextView heroHintView;
     private TextView greetingView;
+    private TextView focusLabel;
+    private View focusBar;
+    private boolean focusLabelShown;
     private String heroTitle = "";
     private String heroSubtitle = "";
     private String heroHint = "";
@@ -134,6 +137,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         gridW = GridSpacing.tileWidth(dm.widthPixels, side, gap, spanCount);
         gridH = Math.round(gridW * 9f / 16f);
 
+        Motion.effects = prefs.option(Prefs.OPT_MOTION);
+        Backdrop.timeOfDay = prefs.option(Prefs.OPT_TIME_TINT);
+        Sounds.setEnabled(this, prefs.option(Prefs.OPT_SOUNDS));
         art = LumenApp.art(this, radius);
         nowPlaying = new NowPlaying(this, io);
         backdrop = new Backdrop(findViewById(R.id.backdropA), findViewById(R.id.backdropB), io, main, images,
@@ -162,6 +168,14 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         // The backdrop images use Z 0/1 to order their crossfade; keep the list above both.
         // (No background means no outline, so this draws no shadow.)
         home.setZ(2f);
+        focusLabel = findViewById(R.id.focusLabel);
+        focusBar = findViewById(R.id.focusBar);
+        home.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView rv, int dx, int dy) {
+                if (dy != 0) updateFocusLabel();
+            }
+        });
 
         // Draw immediately from the in-memory list or the disk snapshot.
         List<AppEntry> quick = AppCatalog.quick(this);
@@ -727,6 +741,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         if (t == null) return;
         heroTitle = t.title;
         heroSubtitle = metaFor(t);
+        Sounds.focus();
+        focusLabel.setText(t.title);
+        updateFocusLabel();
         heroHint = t.onLongClick != null ? "Select to open   ·   ☰  Options" : "Select to open";
         if (heroTitleView != null) {
             heroTitleView.setText(heroTitle);
@@ -735,6 +752,18 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         }
         adapter.setFocusedSection(home, t.section);
         backdrop.request(t.backdropPkg, t.imageUri, t.color, view.backdropSeed());
+    }
+
+    /**
+     * Shows the focused tile's name at the top while the info band is scrolled
+     * away (deep in the Apps grid), so banner-only tiles are never anonymous.
+     */
+    private void updateFocusLabel() {
+        View header = layout.findViewByPosition(0);
+        boolean show = header == null || header.getBottom() < dp(120);
+        if (show == focusLabelShown) return;
+        focusLabelShown = show;
+        focusBar.animate().alpha(show ? 1f : 0f).setDuration(show ? 180 : 120).start();
     }
 
     // ---- Now Playing ----------------------------------------------------------
@@ -772,6 +801,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         if (s == null) return;
         heroTitle = s.title;
         heroSubtitle = (s.playing ? "Playing on " : "Paused on ") + s.appLabel;
+        Sounds.focus();
+        focusLabel.setText(s.title);
+        updateFocusLabel();
         heroHint = "Select to open   ·   ⏯ Play/Pause   ·   ☰  More";
         if (heroTitleView != null) {
             heroTitleView.setText(heroTitle);
@@ -940,15 +972,28 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
 
     private void showLayoutOptions() {
         final String[] keys = {Prefs.ROW_NOW, Prefs.ROW_RECENT, Prefs.ROW_APPS, Prefs.ROW_QUICK};
-        String[] labels = {"Now Playing card", "Recent row", "Apps grid", "Quick controls row", "Larger tiles and text"};
+        final String[] opts = {Prefs.OPT_MOTION, Prefs.OPT_TIME_TINT, Prefs.OPT_SOUNDS};
+        String[] labels = {"Now Playing card", "Recent row", "Apps grid", "Quick controls row", "Larger tiles and text",
+                "Motion effects (tilt, light, zoom)", "Adapt colors to time of day", "Sounds"};
         boolean[] checked = new boolean[labels.length];
         for (int i = 0; i < keys.length; i++) checked[i] = prefs.rowEnabled(keys[i]);
         final boolean wasLarge = prefs.largeTiles();
         checked[keys.length] = wasLarge;
+        for (int i = 0; i < opts.length; i++) checked[keys.length + 1 + i] = prefs.option(opts[i]);
         dialog().setTitle("Home screen layout")
                 .setMultiChoiceItems(labels, checked, (d, which, on) -> {
                     if (which < keys.length) prefs.setRowEnabled(keys[which], on);
-                    else prefs.setLargeTiles(on);
+                    else if (which == keys.length) prefs.setLargeTiles(on);
+                    else {
+                        String o = opts[which - keys.length - 1];
+                        prefs.setOption(o, on);
+                        Motion.effects = prefs.option(Prefs.OPT_MOTION);
+                        Sounds.setEnabled(this, prefs.option(Prefs.OPT_SOUNDS));
+                        if (Prefs.OPT_TIME_TINT.equals(o)) {
+                            Backdrop.timeOfDay = on;
+                            backdrop.invalidate();
+                        }
+                    }
                 })
                 .setPositiveButton("Done", null)
                 .setOnDismissListener(d -> {

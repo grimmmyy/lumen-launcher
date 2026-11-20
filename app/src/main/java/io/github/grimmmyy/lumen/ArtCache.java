@@ -45,7 +45,7 @@ final class ArtCache {
         void onArt(Bitmap art); // main thread; null if the app vanished
     }
 
-    private static final int VERSION = 2; // bump when rendering changes
+    private static final int VERSION = 3; // bump when rendering changes
     private static final int DEFAULT_COLOR = 0xFF1B2333;
 
     private final Context ctx;
@@ -249,7 +249,7 @@ final class ArtCache {
             TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             tp.setColor(Color.WHITE);
             tp.setTextSize(h * 0.115f);
-            tp.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            tp.setTypeface(Fonts.medium(ctx));
             tp.setTextAlign(Paint.Align.CENTER);
             CharSequence label = TextUtils.ellipsize(e.label, tp, w * 0.88f, TextUtils.TruncateAt.END);
             c.drawText(label, 0, label.length(), w / 2f, h * 0.86f, tp);

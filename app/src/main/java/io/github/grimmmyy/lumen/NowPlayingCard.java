@@ -62,11 +62,12 @@ final class NowPlayingCard extends View {
         bar.setColor(Color.WHITE);
         glyph.setColor(0xFF9CC2FF);
         label.setColor(0xFF9CC2FF);
-        label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        label.setTypeface(Fonts.semibold(ctx));
         label.setLetterSpacing(0.08f);
         title.setColor(Color.WHITE);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setTypeface(Fonts.semibold(ctx));
         sub.setColor(0xB3FFFFFF);
+        sub.setTypeface(Fonts.regular(ctx));
         setFocusable(true);
         setClickable(true);
         setLongClickable(true);

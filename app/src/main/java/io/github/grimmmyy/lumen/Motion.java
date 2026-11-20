@@ -16,6 +16,8 @@ final class Motion {
     static final int SCROLL_FAST_MS = 110;
 
     private static long lastRepeatAt;
+    /** Tilt, light sweep and launch zoom (Layout > Motion effects). */
+    static boolean effects = true;
 
     private Motion() {}
 

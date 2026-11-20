@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solid enough behind the name that tiles scrolled under it don't show through. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:bottom="96dp">
+        <shape android:shape="rectangle"><solid android:color="#F2080A10" /></shape>
+    </item>
+    <item android:top="80dp">
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#F2080A10" android:endColor="#00080A10" />
+        </shape>
+    </item>
+</layer-list>

@@ -254,7 +254,10 @@ final class HomeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     static void wire(TileView v, Host host) {
         v.setOnClickListener(x -> {
             Tile t = v.tile();
-            if (t != null && t.onClick != null) t.onClick.run();
+            if (t == null || t.onClick == null) return;
+            if (t.app != null) v.zoomForLaunch();
+            Sounds.select();
+            t.onClick.run();
         });
         v.setOnLongClickListener(x -> {
             Tile t = v.tile();

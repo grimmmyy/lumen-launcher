@@ -102,6 +102,18 @@ final class Prefs {
         sp.edit().putBoolean(KEY_SETUP_SHOWN, true).apply();
     }
 
+    static final String OPT_MOTION = "opt_motion";
+    static final String OPT_SOUNDS = "opt_sounds";
+    static final String OPT_TIME_TINT = "opt_time_tint";
+
+    boolean option(String key) {
+        return sp.getBoolean(key, !OPT_SOUNDS.equals(key)); // everything on by default, except sounds
+    }
+
+    void setOption(String key, boolean on) {
+        sp.edit().putBoolean(key, on).apply();
+    }
+
     boolean largeTiles() {
         return sp.getBoolean(KEY_LARGE, false);
     }

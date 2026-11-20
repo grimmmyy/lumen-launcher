@@ -58,6 +58,11 @@ final class TileView extends View {
     private CharSequence fittedTitle;
     private CharSequence fittedCaption;
     private float lift; // 0 = resting, 1 = focused
+    private final Paint sheenPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Matrix sheenMatrix = new android.graphics.Matrix();
+    private float sheen = -1f; // light sweep progress 0..1 while running, -1 when idle
+    private android.animation.ValueAnimator sheenAnim;
+    private boolean launching;
 
     TileView(Context ctx, float radiusPx) {
         super(ctx);
@@ -74,9 +79,10 @@ final class TileView extends View {
         trackPaint.setColor(0x55FFFFFF);
         barPaint.setColor(Color.WHITE);
         titlePaint.setColor(Color.WHITE);
-        titlePaint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        titlePaint.setTypeface(Fonts.medium(ctx));
         titlePaint.setTextAlign(Paint.Align.CENTER);
         captionPaint.setColor(0xB3FFFFFF);
+        captionPaint.setTypeface(Fonts.regular(ctx));
         captionPaint.setTextAlign(Paint.Align.CENTER);
         setFocusable(true);
         setFocusableInTouchMode(false);
@@ -134,6 +140,11 @@ final class TileView extends View {
         fittedTitle = null;
         fittedCaption = null;
         shadow = shadowFor(w, h);
+        // A soft diagonal band of light, moved across the tile by its local matrix.
+        sheenPaint.setShader(new android.graphics.LinearGradient(0, 0, w * 0.45f, h,
+                new int[]{0x00FFFFFF, 0x30FFFFFF, 0x00FFFFFF}, new float[]{0f, 0.5f, 1f},
+                android.graphics.Shader.TileMode.CLAMP));
+        setCameraDistance(10_000 * getResources().getDisplayMetrics().density);
     }
 
     @Override
@@ -166,6 +177,12 @@ final class TileView extends View {
             float top = h - barH - h * 0.06f;
             c.drawRect(inset, top, w - inset, top + barH, trackPaint);
             c.drawRect(inset, top, inset + (w - 2 * inset) * tile.progress, top + barH, barPaint);
+        }
+
+        if (sheen >= 0f) {
+            sheenMatrix.setTranslate(-w * 0.6f + w * 1.8f * sheen, 0);
+            sheenPaint.getShader().setLocalMatrix(sheenMatrix);
+            c.drawRoundRect(bounds, radius, radius, sheenPaint);
         }
 
         if (lift > 0f) {
@@ -239,7 +256,19 @@ final class TileView extends View {
         setTranslationZ(gained ? 1f : 0f);
         final float from = lift;
         final float to = gained ? 1f : 0f;
-        animate().scaleX(s).scaleY(s)
+        boolean effects = Motion.effects && !Motion.fast();
+        if (gained && effects) {
+            // Swing in slightly from the side focus came from, then settle (a
+            // RenderNode transform: no redraw, nearly free for the GPU).
+            if (direction == FOCUS_RIGHT) setRotationY(7f);
+            else if (direction == FOCUS_LEFT) setRotationY(-7f);
+            else if (direction == FOCUS_DOWN) setRotationX(-6f);
+            else if (direction == FOCUS_UP) setRotationX(6f);
+            startSheen();
+        } else if (!gained) {
+            stopSheen();
+        }
+        animate().scaleX(s).scaleY(s).rotationX(0f).rotationY(0f)
                 .setDuration(Motion.fast() ? 90 : 160)
                 .setInterpolator(EASE)
                 .setUpdateListener(a -> {
@@ -253,9 +282,55 @@ final class TileView extends View {
                 .start();
     }
 
+    private void startSheen() {
+        stopSheen();
+        sheenAnim = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        sheenAnim.setStartDelay(90);
+        sheenAnim.setDuration(620);
+        sheenAnim.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        sheenAnim.addUpdateListener(a -> {
+            sheen = (float) a.getAnimatedValue();
+            invalidate();
+        });
+        sheenAnim.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator a) {
+                sheen = -1f;
+                invalidate();
+            }
+        });
+        sheenAnim.start();
+    }
+
+    private void stopSheen() {
+        if (sheenAnim != null) sheenAnim.cancel();
+        sheenAnim = null;
+        sheen = -1f;
+    }
+
+    /** Grows the tile as its app opens; undone when Lumen is shown again. */
+    void zoomForLaunch() {
+        if (!Motion.effects) return;
+        launching = true;
+        animate().scaleX(1.22f).scaleY(1.22f).setDuration(240)
+                .setInterpolator(new DecelerateInterpolator(2f)).setUpdateListener(null).withEndAction(null).start();
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility == VISIBLE && launching) {
+            launching = false;
+            syncFocusScale();
+        }
+    }
+
     /** Snaps zoom and lift to match focus after a rebind, without animating. */
     void syncFocusScale() {
         animate().cancel();
+        stopSheen();
+        setRotationX(0f);
+        setRotationY(0f);
         boolean f = isFocused();
         float s = f ? FOCUS_SCALE : 1f;
         setScaleX(s);

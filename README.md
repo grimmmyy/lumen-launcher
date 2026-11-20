@@ -19,7 +19,14 @@ them, and stays smooth on cheap hardware.
 - **Your layout, kept**: turn the Recent, Apps and Quick rows on or off; nothing autoplays.
 - **Larger tiles and text**: an option for viewing from further away or with low vision.
 - **Always clear where you are**: the focused tile lifts with a soft shadow and a ring drawn
-  outside it (visible even on white artwork), and the title of the row you're in brightens.
+  outside it (visible even on white artwork), and the title of the row you're in brightens. Deep in the
+  Apps grid, the focused app's name stays at the top of the screen.
+- **Motion with care**: tiles swing in slightly from the direction you moved, a soft light sweeps across
+  the one you land on, and the tile grows as its app opens. All of it pauses while you hold a key, and
+  Layout → Motion effects turns it off.
+- **Feels like evening in the evening**: the backdrop takes a light warm tint in the morning, amber in the
+  evening and a darker blue at night (Layout → Adapt colors to time of day).
+- **Inter typeface**, and optional interface sounds (off by default; TVs often delay HDMI audio).
 - **Focus memory**: each row returns to the tile you left it on; Back and Home return to the top.
 - **Setup and health**: one screen shows whether the Home button, fast scrolling code and wallpapers are set up, with the fix for each; one script sets it all up.
 - **No ads, no sponsored rows, no account, no network calls** (except poster images for Continue Watching).
@@ -247,4 +254,4 @@ while someone is watching that TV.
 
 ## License
 
-MIT
+MIT. The bundled Inter typeface is under the SIL Open Font License ([licenses/Inter-OFL.txt](licenses/Inter-OFL.txt)).
