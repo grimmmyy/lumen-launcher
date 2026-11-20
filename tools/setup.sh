@@ -38,6 +38,9 @@ sh_ "cmd notification allow_listener $PKG/$PKG.NowPlayingService" >/dev/null
 step "Recent from anywhere: usage access (when apps were last used, app sizes)"
 sh_ "appops set $PKG GET_USAGE_STATS allow" >/dev/null
 
+step "Updates: allow Lumen to install new versions (it always asks first)"
+sh_ "appops set $PKG REQUEST_INSTALL_PACKAGES allow" >/dev/null
+
 step "Wallpapers: allow Lumen to read /sdcard/Lumen/wallpapers"
 sh_ "pm grant $PKG android.permission.READ_EXTERNAL_STORAGE" >/dev/null || true
 

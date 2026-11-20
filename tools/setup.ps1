@@ -58,6 +58,9 @@ Shell "cmd notification allow_listener $pkg/$pkg.NowPlayingService" | Out-Null
 Step 'Recent from anywhere: usage access (when apps were last used, app sizes)'
 Shell "appops set $pkg GET_USAGE_STATS allow" | Out-Null
 
+Step 'Updates: allow Lumen to install new versions (it always asks first)'
+Shell "appops set $pkg REQUEST_INSTALL_PACKAGES allow" | Out-Null
+
 Step 'Wallpapers: allow Lumen to read /sdcard/Lumen/wallpapers'
 Shell "pm grant $pkg android.permission.READ_EXTERNAL_STORAGE" | Out-Null
 

@@ -2,6 +2,21 @@ plugins {
     id 'com.android.application'
 }
 
+// Release signing: every Lumen build must use the same key, or installed copies can't be
+// updated. CI reads it from secrets (LUMEN_KEYSTORE etc.); locally from
+// ~/.lumen/signing.properties. Without either (someone else building from source), the
+// debug key is used.
+def signing = new Properties()
+if (System.getenv('LUMEN_KEYSTORE')) {
+    signing.storeFile = System.getenv('LUMEN_KEYSTORE')
+    signing.storePassword = System.getenv('LUMEN_KEYSTORE_PASSWORD')
+    signing.keyAlias = System.getenv('LUMEN_KEY_ALIAS')
+    signing.keyPassword = System.getenv('LUMEN_KEY_PASSWORD')
+} else {
+    def local = new File(System.getProperty('user.home'), '.lumen/signing.properties')
+    if (local.isFile()) local.withInputStream { signing.load(it) }
+}
+
 android {
     namespace 'io.github.grimmmyy.lumen'
     compileSdk 34
@@ -10,8 +25,19 @@ android {
         applicationId 'io.github.grimmmyy.lumen'
         minSdk 26
         targetSdk 34
-        versionCode 15
-        versionName '0.10.0'
+        versionCode 16
+        versionName '0.11.0'
+    }
+
+    signingConfigs {
+        lumen {
+            if (signing.storeFile) {
+                storeFile file(signing.storeFile)
+                storePassword signing.storePassword
+                keyAlias signing.keyAlias
+                keyPassword signing.keyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -19,8 +45,7 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
-            // Sideload build: signed with the debug key so it installs without extra setup.
-            signingConfig signingConfigs.debug
+            signingConfig signing.storeFile ? signingConfigs.lumen : signingConfigs.debug
         }
     }
 

@@ -59,6 +59,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private NowPlaying nowPlaying;
     private NowPlaying.State playing;
     private Weather weather;
+    private Updater updater;
     private AmbientView ambient;
     private boolean swallowKeyUp;
     private final Runnable enterAmbient = this::enterAmbient;
@@ -123,6 +124,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         shownAt = SystemClock.uptimeMillis();
+        // A fresh install picks up /sdcard/Lumen/lumen-settings.json if it's there.
+        boolean restored = Backup.restoreOnFirstRun(this);
         setContentView(R.layout.activity_main);
         prefs = new Prefs(this);
         images = new ImageLoader(this, io, main);
@@ -145,6 +148,7 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         Motion.effects = prefs.option(Prefs.OPT_MOTION);
         Backdrop.style = prefs.backgroundStyle();
         weather = new Weather(this);
+        updater = new Updater(this);
         Backdrop.timeOfDay = prefs.option(Prefs.OPT_TIME_TINT);
         Sounds.setEnabled(this, prefs.option(Prefs.OPT_SOUNDS));
         art = LumenApp.art(this, radius);
@@ -204,6 +208,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         f.addDataScheme("package");
         registerReceiver(packageReceiver, f);
 
+        if (restored) toast("Settings restored from " + Backup.NAME);
+
         if (checkSelfPermission(EPG_PERMISSION) != PackageManager.PERMISSION_GRANTED && !prefs.askedForEpg()) {
             prefs.setAskedForEpg();
             requestPermissions(new String[]{EPG_PERMISSION}, REQ_EPG);
@@ -227,6 +233,12 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         }
         scheduleAmbient();
         weather.refresh(line -> updateGreeting());
+        updater.check(false, () -> {
+            if (updater.available() != null) {
+                signature = null; // the Lumen tile says an update is ready
+                rebuild();
+            }
+        });
         // First run: show Setup once, so the Home button doesn't stay off unnoticed.
         if (!prefs.setupShown() && !isHomeWatcherEnabled()) main.postDelayed(this::openSetup, 1_500);
         // Art trimmed while away is reloaded in the background, after the first frames.
@@ -664,7 +676,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     }
 
     private String quickStatus() {
-        return networkStatus() + "|" + storageStatus() + "|" + SleepTimer.minutesLeft();
+        return networkStatus() + "|" + storageStatus() + "|" + SleepTimer.minutesLeft() + "|"
+                + (updater != null ? updater.available() : null);
     }
 
     // ---- Tiles --------------------------------------------------------------
@@ -747,7 +760,9 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                 () -> openSetting(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)), R.drawable.ic_q_apps));
         q.add(iconTile(textTile("q:settings", "Settings", "All Fire TV settings", 0xFF2A2F3A,
                 () -> openSetting(Settings.ACTION_SETTINGS)), R.drawable.ic_q_settings));
-        q.add(iconTile(textTile("q:lumen", "Lumen", "Layout, Home button", 0xFF3A2430, this::showLumenSettings),
+        String update = updater != null ? updater.available() : null;
+        q.add(iconTile(textTile("q:lumen", "Lumen", update != null ? "Update " + update + " ready" : "Settings, setup",
+                0xFF3A2430, this::showLumenSettings),
                 R.drawable.ic_q_lumen));
         return q;
     }
@@ -1178,6 +1193,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
         String bg = ArtGen.LABELS[Math.max(0, java.util.Arrays.asList(ArtGen.STYLES).indexOf(prefs.backgroundStyle()))];
         Sheet.with(this, "Settings").caption("Lumen " + BuildConfigHelper.versionName(this))
                 .item("Setup and health", watcherOn ? null : "Home button off", this::openSetup)
+                .item("Updates", updater.available() != null ? updater.available() + " ready" : "Up to date",
+                        this::showUpdates)
                 .item("Profile", prefs.profileName(), () -> showProfiles(false))
                 .item("Layout", this::showLayoutOptions)
                 .item("Background", bg, this::showBackgroundStyles)
@@ -1193,6 +1210,15 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
                     signature = null;
                     refresh();
                 })
+                .item("Back up settings", () -> io.execute(() -> {
+                    try {
+                        String where = Backup.export(this);
+                        main.post(() -> toast("Saved to " + where));
+                    } catch (Exception e) {
+                        main.post(() -> toast("Couldn't save: " + e.getMessage()));
+                    }
+                }))
+                .item("Restore settings", this::restoreSettings)
                 .item("Reset Top Shelf", () -> {
                     prefs.resetFavorites();
                     rebuild();
@@ -1305,6 +1331,61 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
             updateGreeting();
         });
         sheet.show();
+    }
+
+    /** Updates: version, release notes, install, check now, automatic checks. */
+    private void showUpdates() {
+        String v = updater.available();
+        long checked = updater.lastChecked();
+        String when = checked == 0 ? "not checked yet" : "checked " + android.text.format.DateUtils
+                .getRelativeTimeSpanString(checked, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS)
+                .toString().toLowerCase(java.util.Locale.getDefault());
+        Sheet sheet = Sheet.with(this, v != null ? "Lumen " + v + " is ready" : "Lumen is up to date")
+                .caption("Updates")
+                .subtitle("You have " + updater.current() + "  \u00b7  " + when);
+        if (v != null) {
+            if (!updater.notes().isEmpty()) sheet.text(updater.notes());
+            if (updater.canInstall()) {
+                sheet.button("Install " + v, true, () -> updater.install((msg, done) -> {
+                    sheet.updateSubtitle(msg);
+                    if (done) toast(msg);
+                }));
+            } else {
+                sheet.text("Lumen needs permission to install updates. Fire TV hides this setting; from a computer:");
+                sheet.code("adb shell appops set " + getPackageName() + " REQUEST_INSTALL_PACKAGES allow");
+            }
+        }
+        sheet.button("Check now", false, () -> {
+            toast("Checking for updates\u2026");
+            updater.check(true, () -> {
+                signature = null;
+                rebuild();
+                showUpdates();
+            });
+        });
+        sheet.toggle("Check automatically (once a day)", updater.autoCheck(), updater::setAutoCheck);
+        sheet.show();
+    }
+
+    private void restoreSettings() {
+        java.io.File f = Backup.find();
+        if (f == null) {
+            toast("No " + Backup.NAME + " in /sdcard/Lumen or Download");
+            return;
+        }
+        Sheet.with(this, "Restore settings").subtitle("Replaces your Top Shelf, groups, profiles and options with "
+                + "the ones saved in " + f.getAbsolutePath() + ".")
+                .button("Restore", false, () -> {
+                    try {
+                        Backup.restore(this, f);
+                        toast("Settings restored");
+                        recreate();
+                    } catch (Exception e) {
+                        toast("Couldn't restore: " + e.getMessage());
+                    }
+                })
+                .button("Cancel", false, null)
+                .show();
     }
 
     private void showLayoutOptions() {

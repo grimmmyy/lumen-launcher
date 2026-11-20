@@ -37,6 +37,11 @@ them, and stays smooth on cheap hardware.
   Layout → Motion effects turns it off.
 - **Feels like evening in the evening**: the backdrop takes a light warm tint in the morning, amber in the
   evening and a darker blue at night (Layout → Adapt colors to time of day).
+- **Updates on the TV**: Lumen checks its GitHub releases once a day and, when there's a new version,
+  downloads it, checks that it's Lumen and signed with the same key, and installs it after you confirm
+  (Settings → Updates; the Lumen tile in the Quick row says when one is ready).
+- **Back up and restore settings**: Settings → Back up settings saves your Top Shelf, groups, profiles and
+  options to `Download/lumen-settings.json`; a new install restores from `/sdcard/Lumen/lumen-settings.json`.
 - **Lumen's own menus**: settings, app options and choices open in a panel that slides in from the
   right, in the same typeface and focus style as Home, instead of the system dialogs. Back closes it.
 - **Inter typeface**, and optional interface sounds (off by default; TVs often delay HDMI audio).
@@ -51,8 +56,9 @@ them, and stays smooth on cheap hardware.
 - **Focus memory**: each row returns to the tile you left it on; Back and Home return to the top.
 - **Setup and health**: one screen shows whether the Home button, fast scrolling code and wallpapers are set up, with the fix for each; one script sets it all up.
 - **No ads, no sponsored rows, no account, no tracking.** Network use is limited to poster images for
-  Continue Watching and, only if you turn it on, the weather from [Open-Meteo](https://open-meteo.com)
-  (your city name once, to find it, then its coordinates every 30 minutes while Lumen is on screen).
+  Continue Watching, a daily update check with GitHub (Settings → Updates turns it off), and, only if
+  you turn it on, the weather from [Open-Meteo](https://open-meteo.com) (your city name once, to find it,
+  then its coordinates every 30 minutes while Lumen is on screen).
 
 | Now Playing | Ambient mode | Setup and health |
 |---|---|---|
@@ -144,7 +150,7 @@ sh setup.sh <fire-tv-ip> lumen.apk                # macOS, Linux
 ```
 
 It installs Lumen, makes the Home button open it (keeping any other accessibility services you use),
-turns on Now Playing and usage access, lets it read your wallpapers, then opens Lumen and compiles it
+turns on Now Playing, usage access and updates, lets it read your wallpapers, then opens Lumen and compiles it
 ahead of time. Choose **Allow** if the
 TV asks about the computer. It's safe to run again, for example after an update.
 
@@ -164,6 +170,7 @@ adb shell settings put secure enabled_accessibility_services io.github.grimmmyy.
 adb shell settings put secure accessibility_enabled 1
 adb shell cmd notification allow_listener io.github.grimmmyy.lumen/io.github.grimmmyy.lumen.NowPlayingService
 adb shell appops set io.github.grimmmyy.lumen GET_USAGE_STATS allow
+adb shell appops set io.github.grimmmyy.lumen REQUEST_INSTALL_PACKAGES allow
 # open Lumen, wait about 10 seconds, then:
 adb shell cmd package compile -m speed-profile -f io.github.grimmmyy.lumen
 ```
@@ -261,6 +268,7 @@ and Google TV devices where apps publish to Watch Next.
 | `READ_EXTERNAL_STORAGE` / `READ_MEDIA_IMAGES` | Optional: your wallpapers in `/sdcard/Lumen/wallpapers` |
 | Accessibility service | Optional: make the Home button open Lumen (see above) |
 | `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` | Quick → Network: connected or not, Wi-Fi strength (never network names or location) |
+| `REQUEST_INSTALL_PACKAGES` | Install Lumen updates from its GitHub releases (Android asks you to confirm each one) |
 | Usage access (`PACKAGE_USAGE_STATS`) | Optional: Recent includes apps opened from anywhere; app menus show storage used |
 | Notification access (`NowPlayingService`) | Optional: Now Playing. Android only shows apps' media players to a notification listener; Lumen never reads, keeps or shows notifications |
 
@@ -273,8 +281,14 @@ Requires JDK 17+ and the Android SDK (platform 34).
 # app/build/outputs/apk/release/app-release.apk
 ```
 
-The release build is signed with the debug key so it installs without extra setup.
-Each push to `main` builds an APK in GitHub Actions; pushing a `v*` tag publishes a release.
+Release builds are signed with the Lumen release key so installed copies can update: CI reads it from
+repository secrets, and local builds from `~/.lumen/signing.properties` (keep that folder private and
+backed up). Without it, a build from source is signed with your debug key; it installs fine but can't
+update a release copy (Android requires the same key).
+
+Each push to `main` builds an APK in GitHub Actions. To publish a release, run
+`./tools/release.ps1 0.11.1`: it bumps the version, tags `v0.11.1` and pushes; CI builds, signs and
+publishes the release with the setup scripts, and TVs pick it up within a day.
 
 ### Benchmark
 

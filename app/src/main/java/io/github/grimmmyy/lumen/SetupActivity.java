@@ -115,6 +115,19 @@ public class SetupActivity extends Activity {
                         + "setting, so turn it on from a computer with ADB:",
                         "adb shell cmd notification allow_listener " + pkg + "/" + pkg + ".NowPlayingService")));
 
+        // Updates from GitHub releases
+        Updater up = new Updater(this);
+        boolean canUpdate = up.canInstall();
+        String ready = up.available();
+        c.add(new Check("Updates", !canUpdate
+                ? "Lumen can find new versions but isn't allowed to install them. Fire TV hides this setting."
+                : ready != null ? "Lumen " + ready + " is ready: Lumen settings > Updates."
+                : "Lumen checks for new versions once a day and installs them when you confirm.",
+                !canUpdate ? ACTION : OK, canUpdate ? null : "How",
+                canUpdate ? null : () -> showCommands("Allow updates",
+                        "Let Lumen hand updates to Android's installer, from a computer with ADB:",
+                        "adb shell appops set " + pkg + " REQUEST_INSTALL_PACKAGES allow")));
+
         // Usage access
         boolean usage = Usage.granted(this);
         c.add(new Check("Recent from anywhere", usage
