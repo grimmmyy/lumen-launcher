@@ -67,6 +67,16 @@ public class HomeWatcherService extends AccessibilityService {
         prefs = new Prefs(this);
         instance = this;
         Log.i(TAG, "watcher connected");
+        // Just updated (see UpdatedReceiver): back to Lumen, not the Amazon home screen.
+        android.content.SharedPreferences up = getSharedPreferences("updates", MODE_PRIVATE);
+        if (System.currentTimeMillis() < up.getLong("reopen_until", 0)) {
+            up.edit().remove("reopen_until").apply();
+            try {
+                startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (RuntimeException ignored) {
+                // the Home button opens Lumen anyway
+            }
+        }
     }
 
     @Override
