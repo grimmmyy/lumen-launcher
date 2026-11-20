@@ -24,7 +24,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $activity = "$Package/.MainActivity"
 
-function Invoke-Device([string]$cmd) { adb -s $Serial shell $cmd }
+# adb's harmless stderr warnings (e.g. "Broken pipe" after grep -m1) would stop the
+# script under Windows PowerShell 5.1; drop them and keep stdout.
+function Invoke-Device([string]$cmd) {
+    $ErrorActionPreference = 'Continue'
+    adb -s $Serial shell $cmd 2>$null
+}
 
 # `am start -W` waits forever while the display is off, so wake the device before each launch.
 function Wake { Invoke-Device 'input keyevent KEYCODE_WAKEUP' | Out-Null }

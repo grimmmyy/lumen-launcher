@@ -32,5 +32,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: lumen.apk
+          files: |
+            lumen.apk
+            tools/setup.ps1
+            tools/setup.sh
           generate_release_notes: true

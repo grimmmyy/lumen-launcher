@@ -2,6 +2,8 @@
 
 A fast, ad-free home screen for Fire TV and Android TV, inspired by Apple TV.
 
+![Lumen home screen](docs/home.jpg)
+
 Most TV home screens put recommendations, ads and extra services between you and
 what you wanted to watch. Lumen puts your apps first, keeps them where you put
 them, and stays smooth on cheap hardware.
@@ -50,24 +52,32 @@ them, and stays smooth on cheap hardware.
   Continue Watching and, only if you turn it on, the weather from [Open-Meteo](https://open-meteo.com)
   (your city name once, to find it, then its coordinates every 30 minutes while Lumen is on screen).
 
+| Now Playing | Ambient mode | Setup and health |
+|---|---|---|
+| ![Now Playing](docs/now-playing.jpg) | ![Ambient mode](docs/ambient.jpg) | ![Setup](docs/setup.jpg) |
+
 ## Performance
 
-On a **Fire TV Stick 4K Max** (Fire OS 8, MT8696, 2 GB), Lumen 0.3.2, measured with
-[`tools/bench.ps1`](tools/bench.ps1):
+On a **Fire TV Stick 4K Max** (Fire OS 8, MT8696, 2 GB), Lumen 0.9.0 with motion effects on, measured
+with [`tools/bench.ps1`](tools/bench.ps1) (median of two consistent runs):
 
 | | |
 |---|---|
-| Janky frames (across a row / down the page / D-pad held) | **0% / 0% / 0%** |
-| Typical frame (p50) / slowest 1% (p99) | **5 ms / 8–11 ms** |
-| Cold start | **291 ms** |
-| Return to Home | **128 ms** (with "Don't keep activities" on; see below) |
-| Memory on screen / while you watch something else | **73 MB / 60 MB** |
+| Janky frames (across a row / down the page / D-pad held) | **0% / 0.36% / 0%** |
+| Typical frame (p50) / slowest 1% (p99) | **5 ms / 10–12 ms** |
+| Cold start | **285–310 ms** |
+| Return to Home | **about 155 ms** (with "Don't keep activities" on; see below) |
+| Memory on screen / while you watch something else | **84 MB / 70 MB** |
+
+A run started straight after compiling measured 6–7% janky frames while the stick was still busy;
+the two runs after it agreed with the table. Motion effects (tilt, light sweep) add about 1 ms to a
+typical frame; Layout → Motion effects turns them off.
 
 The stock Amazon home screen on the same stick: about 160–200 MB, and it stays running in the
 background either way (the Home button opens it for an instant before Lumen takes over).
 
-Where a frame's time goes on that stick (presses half a second apart, about 2,900 frames, from
-`dumpsys gfxinfo framestats`). A frame has 16.7 ms:
+Where a frame's time goes on that stick (Lumen 0.3.3, before the motion effects; presses half a
+second apart, about 2,900 frames, from `dumpsys gfxinfo framestats`). A frame has 16.7 ms:
 
 | Stage | Typical | Notes |
 |---|---|---|
@@ -119,15 +129,16 @@ How:
 ## Install (Fire TV)
 
 1. On the Fire TV: Settings → My Fire TV → Developer options → turn on **ADB debugging** and **Apps from unknown sources**.
-2. Get `lumen.apk` from [Releases](../../releases) (or build it, below) and, on a computer with
-   [ADB](https://developer.android.com/tools/releases/platform-tools), run the setup script from this repository:
+2. From the latest [release](../../releases/latest), download `lumen.apk` and the setup script for your
+   computer (`setup.ps1` for Windows, `setup.sh` for macOS and Linux; also in `tools/`). With
+   [ADB](https://developer.android.com/tools/releases/platform-tools) installed, run:
 
 ```powershell
-./tools/setup.ps1 -Device <fire-tv-ip> -Apk lumen.apk     # Windows
+./setup.ps1 -Device <fire-tv-ip> -Apk lumen.apk     # Windows
 ```
 
 ```sh
-./tools/setup.sh <fire-tv-ip> lumen.apk                   # macOS, Linux
+sh setup.sh <fire-tv-ip> lumen.apk                # macOS, Linux
 ```
 
 It installs Lumen, makes the Home button open it (keeping any other accessibility services you use),
