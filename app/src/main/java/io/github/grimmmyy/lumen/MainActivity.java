@@ -1337,7 +1337,8 @@ public class MainActivity extends Activity implements HomeAdapter.Host {
     private void showUpdates() {
         String v = updater.available();
         long checked = updater.lastChecked();
-        String when = checked == 0 ? "not checked yet" : "checked " + android.text.format.DateUtils
+        String when = checked == 0 ? "not checked yet"
+                : System.currentTimeMillis() - checked < 60_000 ? "checked just now" : "checked " + android.text.format.DateUtils
                 .getRelativeTimeSpanString(checked, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS)
                 .toString().toLowerCase(java.util.Locale.getDefault());
         Sheet sheet = Sheet.with(this, v != null ? "Lumen " + v + " is ready" : "Lumen is up to date")
